@@ -1,0 +1,542 @@
+"""
+Agenda CJ Medical - API REST COMPLETA
+Incluye CRUD de maestros + gestión de citas + clientes
+"""
+import os, json
+from datetime import date, datetime
+from typing import Optional, List
+import psycopg2
+import psycopg2.extras
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
+
+app = FastAPI(title="Agenda CJ Medical")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@127.0.0.1:5432/cjmedical")
+
+def get_conn():
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = True
+    return conn
+
+# ═══════════════════════════════════════════════════
+# MODELOS
+# ═══════════════════════════════════════════════════
+class ClienteCrear(BaseModel):
+    documento: str; primer_nombre: str; primer_apellido: str
+    telefono: str; correo: Optional[str] = None; sede: str
+
+class ClienteEditar(BaseModel):
+    documento: Optional[str] = None; primer_nombre: Optional[str] = None
+    primer_apellido: Optional[str] = None; telefono: Optional[str] = None
+    correo: Optional[str] = None; sede: Optional[str] = None
+
+class BuscarCliente(BaseModel): telefono: str
+
+class HuecosRequest(BaseModel):
+    fecha: date; sede: str
+    especialista: Optional[str] = None; servicio: str
+    duracion: Optional[int] = None; paso: int = 15
+
+class BuscarHuecosReq(BaseModel):
+    desde: Optional[date] = None; dias: int = 14
+    sede: str; servicio: str; limite: int = 40
+
+class ApartarCupoReq(BaseModel):
+    especialista: str; sede: str; fecha: date; inicio: str
+    servicio: str; minutos: int = 5; referencia: str
+
+class AgendarReq(BaseModel):
+    cliente_id: str; especialista: str; sede: str; fecha: date
+    inicio: str; servicio: str
+    canal: str = "WhatsApp"; por: str = "pepe"
+    notas: Optional[str] = None; reserva: Optional[str] = None
+
+class CambiarEstadoReq(BaseModel):
+    cita_id: str; estado: str; por: str = "pepe"
+    motivo: Optional[str] = None
+
+class ReprogramarReq(BaseModel):
+    cita_id: str; fecha: date; inicio: str
+    especialista: Optional[str] = None; sede: Optional[str] = None
+    motivo: str = ""; por: str = "pepe"
+
+class MoverCitaReq(BaseModel):
+    fecha: Optional[date] = None; inicio: Optional[str] = None
+    fin: Optional[str] = None; especialista_id: Optional[str] = None
+    sede_id: Optional[str] = None; servicio_id: Optional[str] = None
+    notas: Optional[str] = None
+
+class EspecialistaReq(BaseModel):
+    nombres: str; apellidos: str
+    color: Optional[str] = "#8A7C75"; activo: bool = True
+
+class EspecialistaEditReq(BaseModel):
+    nombres: Optional[str] = None; apellidos: Optional[str] = None
+    color: Optional[str] = None; activo: Optional[bool] = None
+
+class EspecialistaSedeReq(BaseModel):
+    especialista_id: str; sede_id: str; activo: Optional[bool] = None
+
+class EspecialistaServicioReq(BaseModel):
+    especialista_id: str; servicio_id: str
+
+class HorarioReq(BaseModel):
+    especialista_id: str; dia: int; sede_id: str
+    desde: str; hasta: str
+    alm_desde: Optional[str] = None; alm_hasta: Optional[str] = None
+
+class ServicioReq(BaseModel):
+    nombre: str; duracion: int; activo: bool = True
+
+class ServicioEditReq(BaseModel):
+    nombre: Optional[str] = None; duracion: Optional[int] = None; activo: Optional[bool] = None
+
+class SedeReq(BaseModel):
+    nombre: str; ciudad: Optional[str] = None
+    direccion: Optional[str] = None; telefono: Optional[str] = None
+    hora_inicio: str = "09:00"; hora_fin: str = "19:00"
+    puestos: int = 1; activo: bool = True
+
+class SedeEditReq(BaseModel):
+    nombre: Optional[str] = None; ciudad: Optional[str] = None
+    direccion: Optional[str] = None; telefono: Optional[str] = None
+    hora_inicio: Optional[str] = None; hora_fin: Optional[str] = None
+    puestos: Optional[int] = None; activo: Optional[bool] = None
+
+class EstadoReq(BaseModel):
+    nombre: str; color: str = "#8A7C75"
+    tipo: str = "abierto"; inicial: bool = False
+    orden: int = 50; activo: bool = True
+
+class BloqueoReq(BaseModel):
+    especialista: str; sede: str; fecha: date; inicio: str
+    fin: str; motivo: str = "Bloqueo"; por: str = "admin"
+
+# ═══════════════════════════════════════════════════
+# CORS
+# ═══════════════════════════════════════════════════
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ═══════════════════════════════════════════════════
+# HEALTH
+# ═══════════════════════════════════════════════════
+@app.get("/")
+def root(): return {"agenda": "CJ Medical", "version": "2.0"}
+
+@app.get("/health")
+def health():
+    try:
+        conn = get_conn(); cur = conn.cursor(); cur.execute("SELECT 1")
+        return {"status": "ok", "db": "conectada"}
+    except Exception as e:
+        return {"status": "error", "db": str(e)}
+
+# ═══════════════════════════════════════════════════
+# SEDES - CRUD
+# ═══════════════════════════════════════════════════
+@app.get("/sedes")
+def sedes_list():
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM sedes ORDER BY nombre")
+    return cur.fetchall()
+
+@app.post("/api/v2/sedes")
+def sedes_create(req: SedeReq):
+    conn = get_conn(); cur = conn.cursor()
+    sid = f"sede-cj-medical-{req.nombre.lower().replace(' ','-')[:40]}"
+    cur.execute("INSERT INTO sedes(id,nombre,ciudad,hora_inicio,hora_fin,puestos,activo) VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET nombre=%s,ciudad=%s,hora_inicio=%s,hora_fin=%s,puestos=%s,activo=%s",
+        (sid, req.nombre, req.ciudad, req.hora_inicio, req.hora_fin, req.puestos, req.activo,
+         req.nombre, req.ciudad, req.hora_inicio, req.hora_fin, req.puestos, req.activo))
+    cur.execute("SELECT * FROM sedes WHERE id=%s", (sid,))
+    return cur.fetchone()
+
+@app.put("/api/v2/sedes/{sid}")
+def sedes_update(sid: str, req: SedeEditReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    if not updates: raise HTTPException(400, "Nada que actualizar")
+    parts = ", ".join(f"{k}=%({k})s" for k in updates)
+    updates["sid"] = sid
+    cur.execute(f"UPDATE sedes SET {parts} WHERE id=%(sid)s", updates)
+    cur.execute("SELECT * FROM sedes WHERE id=%s", (sid,))
+    r = cur.fetchone()
+    if not r: raise HTTPException(404, "Sede no encontrada")
+    return r
+
+@app.delete("/api/v2/sedes/{sid}")
+def sedes_delete(sid: str):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("DELETE FROM sedes WHERE id=%s", (sid,))
+    return {"ok": True}
+
+# ═══════════════════════════════════════════════════
+# SERVICIOS - CRUD
+# ═══════════════════════════════════════════════════
+@app.get("/servicios")
+def servicios_list():
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM servicios ORDER BY nombre")
+    return cur.fetchall()
+
+@app.post("/api/v2/servicios")
+def servicios_create(req: ServicioReq):
+    conn = get_conn(); cur = conn.cursor()
+    sid = f"srv-{req.nombre.lower().replace(' ','-')[:50]}"
+    cur.execute("INSERT INTO servicios(id,nombre,duracion,activo) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET nombre=%s,duracion=%s,activo=%s",
+        (sid, req.nombre, req.duracion, req.activo, req.nombre, req.duracion, req.activo))
+    # Also add all specialists to this service
+    cur.execute("SELECT id FROM especialistas WHERE activo")
+    for (eid,) in cur.fetchall():
+        try: cur.execute("INSERT INTO especialista_servicios(especialista_id,servicio_id) VALUES(%s,%s) ON CONFLICT DO NOTHING", (eid, sid))
+        except: pass
+    cur.execute("SELECT * FROM servicios WHERE id=%s", (sid,))
+    return cur.fetchone()
+
+@app.put("/api/v2/servicios/{sid}")
+def servicios_update(sid: str, req: ServicioEditReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    if not updates: raise HTTPException(400, "Nada que actualizar")
+    parts = ", ".join(f"{k}=%({k})s" for k in updates)
+    updates["sid"] = sid
+    cur.execute(f"UPDATE servicios SET {parts} WHERE id=%(sid)s", updates)
+    cur.execute("SELECT * FROM servicios WHERE id=%s", (sid,))
+    r = cur.fetchone()
+    if not r: raise HTTPException(404, "Servicio no encontrado")
+    return r
+
+@app.delete("/api/v2/servicios/{sid}")
+def servicios_delete(sid: str):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("DELETE FROM servicios WHERE id=%s", (sid,))
+    return {"ok": True}
+
+# ═══════════════════════════════════════════════════
+# ESPECIALISTAS - CRUD
+# ═══════════════════════════════════════════════════
+@app.get("/especialistas")
+def especialistas_list():
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT e.*, COALESCE(array_agg(DISTINCT es.sede_id) FILTER (WHERE es.sede_id IS NOT NULL), '{}') as sedes FROM especialistas e LEFT JOIN especialista_sedes es ON es.especialista_id=e.id WHERE e.activo GROUP BY e.id ORDER BY e.nombres")
+    return cur.fetchall()
+
+@app.post("/api/v2/especialistas")
+def especialistas_create(req: EspecialistaReq):
+    conn = get_conn(); cur = conn.cursor()
+    eid = f"esp-{req.nombres.lower().replace(' ','-')[:40]}-{req.apellidos.lower().replace(' ','-')[:20]}"
+    cur.execute("INSERT INTO especialistas(id,nombres,apellidos,color,activo) VALUES(%s,%s,%s,%s,%s)",
+        (eid, req.nombres, req.apellidos, req.color, req.activo))
+    cur.execute("SELECT * FROM especialistas WHERE id=%s", (eid,))
+    return cur.fetchone()
+
+@app.put("/api/v2/especialistas/{eid}")
+def especialistas_update(eid: str, req: EspecialistaEditReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    if not updates: raise HTTPException(400, "Nada que actualizar")
+    parts = ", ".join(f"{k}=%({k})s" for k in updates)
+    updates["eid"] = eid
+    cur.execute(f"UPDATE especialistas SET {parts} WHERE id=%(eid)s", updates)
+    cur.execute("SELECT * FROM especialistas WHERE id=%s", (eid,))
+    r = cur.fetchone()
+    if not r: raise HTTPException(404, "Especialista no encontrada")
+    return r
+
+@app.delete("/api/v2/especialistas/{eid}")
+def especialistas_delete(eid: str):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM citas WHERE especialista_id=%s AND fecha>=CURRENT_DATE", (eid,))
+    if cur.fetchone()[0] > 0:
+        raise HTTPException(400, "La especialista tiene citas futuras. Reasígnalas primero.")
+    cur.execute("UPDATE especialistas SET activo=false WHERE id=%s", (eid,))
+    return {"ok": True, "mensaje": "Especialista desactivada"}
+
+# ═══════════════════════════════════════════════════
+# HORARIOS - CRUD
+# ═══════════════════════════════════════════════════
+@app.post("/api/v2/horarios")
+def horarios_create(req: HorarioReq):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("INSERT INTO horarios(especialista_id,dia,sede_id,desde,hasta,alm_desde,alm_hasta) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+        (req.especialista_id, req.dia, req.sede_id, req.desde, req.hasta, req.alm_desde, req.alm_hasta))
+    return {"ok": True}
+
+@app.delete("/api/v2/horarios/{hid}")
+def horarios_delete(hid: int):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("DELETE FROM horarios WHERE id=%s", (hid,))
+    return {"ok": True}
+
+# ═══════════════════════════════════════════════════
+# ESPECIALISTA-SEDE / ESPECIALISTA-SERVICIO
+# ═══════════════════════════════════════════════════
+@app.post("/api/v2/especialista-sedes")
+def especialista_sede_add(req: EspecialistaSedeReq):
+    conn = get_conn(); cur = conn.cursor()
+    if req.activo is False:
+        cur.execute("DELETE FROM especialista_sedes WHERE especialista_id=%s AND sede_id=%s", (req.especialista_id, req.sede_id))
+    else:
+        cur.execute("INSERT INTO especialista_sedes(especialista_id,sede_id) VALUES(%s,%s) ON CONFLICT DO NOTHING",
+            (req.especialista_id, req.sede_id))
+    return {"ok": True}
+
+@app.post("/api/v2/especialista-servicios")
+def especialista_servicio_add(req: EspecialistaServicioReq):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("INSERT INTO especialista_servicios(especialista_id,servicio_id) VALUES(%s,%s) ON CONFLICT DO NOTHING",
+        (req.especialista_id, req.servicio_id))
+    return {"ok": True}
+
+@app.delete("/api/v2/especialista-servicios/{especialista_id}/{servicio_id}")
+def especialista_servicio_del(especialista_id: str, servicio_id: str):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("DELETE FROM especialista_servicios WHERE especialista_id=%s AND servicio_id=%s",
+        (especialista_id, servicio_id))
+    return {"ok": True}
+
+# ═══════════════════════════════════════════════════
+# ESTADOS - CRUD
+# ═══════════════════════════════════════════════════
+@app.post("/api/v2/estados")
+def estados_create(req: EstadoReq):
+    conn = get_conn(); cur = conn.cursor()
+    sid = f"est-{req.nombre.lower().replace(' ','-')[:30]}"
+    cur.execute("INSERT INTO estados(id,nombre,color,tipo,inicial,orden,activo) VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET nombre=%s,color=%s,tipo=%s,orden=%s,activo=%s",
+        (sid, req.nombre, req.color, req.tipo, req.inicial, req.orden, req.activo,
+         req.nombre, req.color, req.tipo, req.orden, req.activo))
+    cur.execute("SELECT * FROM estados WHERE id=%s", (sid,))
+    return cur.fetchone()
+
+@app.put("/api/v2/estados/{eid}")
+def estados_update(eid: str, req: EstadoReq):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("UPDATE estados SET nombre=%s,color=%s,tipo=%s,inicial=%s,orden=%s,activo=%s WHERE id=%s",
+        (req.nombre, req.color, req.tipo, req.inicial, req.orden, req.activo, eid))
+    return {"ok": True}
+
+@app.delete("/api/v2/estados/{eid}")
+def estados_delete(eid: str):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("UPDATE estados SET activo=false WHERE id=%s", (eid,))
+    return {"ok": True}
+
+# ═══════════════════════════════════════════════════
+# CLIENTES
+# ═══════════════════════════════════════════════════
+@app.post("/clientes/buscar")
+def buscar_cliente(req: BuscarCliente):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM clientes WHERE telefono ILIKE %s OR telefono ILIKE %s ORDER BY primer_nombre LIMIT 20",
+        (f"%{req.telefono}%", f"%{req.telefono[-10:]}%"))
+    return cur.fetchall()
+
+@app.post("/clientes/crear")
+def crear_cliente(req: ClienteCrear):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM crear_cliente(%s,%s,%s,%s,%s,%s)",
+        (req.documento, req.primer_nombre, req.primer_apellido, req.telefono, req.correo, req.sede))
+    return cur.fetchone()
+
+@app.get("/api/v2/clientes/{cid}")
+def cliente_detail(cid: str):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM clientes WHERE id=%s", (cid,))
+    r = cur.fetchone()
+    if not r: raise HTTPException(404, "Cliente no encontrado")
+    return r
+
+@app.put("/api/v2/clientes/{cid}")
+def cliente_update(cid: str, req: ClienteEditar):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    if not updates: raise HTTPException(400, "Nada que actualizar")
+    parts = ", ".join(f"{k}=%({k})s" for k in updates)
+    updates["cid"] = cid
+    cur.execute(f"UPDATE clientes SET {parts} WHERE id=%(cid)s", updates)
+    cur.execute("SELECT * FROM clientes WHERE id=%s", (cid,))
+    return cur.fetchone()
+
+@app.get("/api/v2/clientes")
+def clientes_list(buscar: Optional[str] = Query(None), limite: int = 100):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if buscar:
+        cur.execute("SELECT * FROM clientes WHERE documento ILIKE %s OR primer_nombre ILIKE %s OR telefono ILIKE %s ORDER BY primer_nombre LIMIT %s",
+            (f"%{buscar}%", f"%{buscar}%", f"%{buscar}%", limite))
+    else:
+        cur.execute("SELECT * FROM clientes ORDER BY primer_nombre LIMIT %s", (limite,))
+    return cur.fetchall()
+
+# ═══════════════════════════════════════════════════
+# CITAS - AGENDA DEL DÍA
+# ═══════════════════════════════════════════════════
+@app.get("/agenda/{sede_id}/{fecha}")
+def agenda_dia(sede_id: str, fecha: date):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if sede_id == "todas":
+        cur.execute("SELECT * FROM v_agenda WHERE fecha=%s ORDER BY sede_id, inicio", (fecha,))
+    else:
+        cur.execute("SELECT * FROM v_agenda WHERE fecha=%s AND sede_id=%s ORDER BY inicio", (fecha, sede_id))
+    return cur.fetchall()
+
+# ═══════════════════════════════════════════════════
+# CITAS - AGENDAR, REPROGRAMAR, MOVER, BORRAR, BLOQUEO
+# ═══════════════════════════════════════════════════
+@app.post("/citas/agendar")
+def agendar(req: AgendarReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM agendar_cita(p_cliente=>%s,p_especialista=>%s,p_sede=>%s,p_fecha=>%s,p_inicio=>%s,p_servicio=>%s,p_canal=>%s,p_por=>%s,p_notas=>%s,p_reserva=>%s)",
+        (req.cliente_id, req.especialista, req.sede, req.fecha, req.inicio, req.servicio, req.canal, req.por, req.notas, req.reserva))
+    r = cur.fetchone()
+    if r and isinstance(r, dict) and "error" in str(r.get("mensaje","")):
+        raise HTTPException(409, r.get("mensaje", "Conflicto al agendar"))
+    return r
+
+@app.post("/citas/estado")
+def cambiar_estado(req: CambiarEstadoReq):
+    conn = get_conn(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT cambiar_estado(%s,%s,%s,%s)", (req.cita_id, req.estado, req.por, req.motivo))
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+@app.post("/cupos/apartar")
+def apartar(req: ApartarCupoReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM apartar_cupo(p_especialista=>%s,p_sede=>%s,p_fecha=>%s,p_inicio=>%s,p_servicio=>%s,p_minutos=>%s,p_referencia=>%s)",
+        (req.especialista, req.sede, req.fecha, req.inicio, req.servicio, req.minutos, req.referencia))
+    return cur.fetchone()
+
+@app.post("/huecos/dia")
+def huecos_dia(req: HuecosRequest):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM huecos_del_dia(p_fecha=>%s,p_sede=>%s,p_servicio=>%s,paso=>%s,p_especialista=>%s,p_duracion=>%s)",
+        (req.fecha, req.sede, req.servicio, req.paso, req.especialista, req.duracion))
+    return cur.fetchall()
+
+@app.post("/huecos/buscar")
+def huecos_buscar(req: BuscarHuecosReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM buscar_huecos(p_desde=>%s,p_dias=>%s,p_sede=>%s,p_servicio=>%s,p_limite=>%s)",
+        (req.desde or date.today(), req.dias, req.sede, req.servicio, req.limite))
+    return cur.fetchall()
+
+# ═══════════════════════════════════════════════════
+# CITAS - REPROGRAMAR
+# ═══════════════════════════════════════════════════
+@app.post("/api/v2/citas/reprogramar")
+def reprogramar(req: ReprogramarReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM reprogramar_cita(p_cita=>%s,p_fecha=>%s,p_inicio=>%s,p_especialista=>%s,p_sede=>%s,p_motivo=>%s,p_por=>%s)",
+        (req.cita_id, req.fecha, req.inicio, req.especialista, req.sede, req.motivo, req.por))
+    return cur.fetchone()
+
+# ═══════════════════════════════════════════════════
+# CITAS - MOVER (actualizar fecha/hora/especialista de una cita)
+# ═══════════════════════════════════════════════════
+@app.put("/api/v2/citas/{cid}")
+def cita_update(cid: str, req: MoverCitaReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    if not updates: raise HTTPException(400, "Nada que actualizar")
+    parts = ", ".join(f"{k}=%({k})s" for k in updates)
+    updates["cid"] = cid
+    cur.execute(f"UPDATE citas SET {parts} WHERE id=%(cid)s", updates)
+    # Registrar en bitácora
+    cur.execute("INSERT INTO cita_bitacora(cita_id, accion, por, notas) VALUES(%s,'movida','admin','Cita actualizada')",
+        (cid,))
+    cur.execute("SELECT * FROM v_agenda WHERE id=%s", (cid,))
+    return cur.fetchone()
+
+# ═══════════════════════════════════════════════════
+# CITAS - BORRAR / ANULAR
+# ═══════════════════════════════════════════════════
+@app.delete("/api/v2/citas/{cid}")
+def cita_delete(cid: str):
+    conn = get_conn(); cur = conn.cursor()
+    # Cambiar a estado cancelado en lugar de borrar físicamente
+    cur.execute("SELECT cambiar_estado(%s,%s,%s,%s)", (cid, "est-cancelado", "admin", "Anulada por el usuario"))
+    return {"ok": True}
+
+# ═══════════════════════════════════════════════════
+# CITAS - BLOQUEO
+# ═══════════════════════════════════════════════════
+@app.post("/api/v2/citas/bloqueo")
+def cita_bloqueo(req: BloqueoReq):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM agendar_cita(p_cliente=>null,p_especialista=>%s,p_sede=>%s,p_fecha=>%s,p_inicio=>%s,p_fin=>%s,p_canal=>'manual',p_por=>%s,p_notas=>%s)",
+        (req.especialista, req.sede, req.fecha, req.inicio, req.fin, req.por, req.motivo))
+    return cur.fetchone()
+
+# ═══════════════════════════════════════════════════
+# CITAS - TODAS (admin)
+# ═══════════════════════════════════════════════════
+@app.get("/api/v2/citas")
+def citas_list(fecha: Optional[str] = Query(None), sede_id: Optional[str] = Query(None)):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    where = []; params = []
+    if fecha: where.append("fecha=%s"); params.append(fecha)
+    if sede_id: where.append("sede_id=%s"); params.append(sede_id)
+    w = " WHERE " + " AND ".join(where) if where else ""
+    cur.execute(f"SELECT * FROM v_agenda{w} ORDER BY fecha, inicio LIMIT 500", params)
+    return cur.fetchall()
+
+# ═══════════════════════════════════════════════════
+# CITAS - RESUMEN DEL MES
+# ═══════════════════════════════════════════════════
+@app.get("/api/v2/indicadores")
+def indicadores_mes(anio: int = 2026, mes: int = 9):
+    conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT sede_id, estado_id, count(*) as total
+        FROM citas WHERE fecha BETWEEN %s AND %s
+        GROUP BY sede_id, estado_id
+    """, (f"{anio}-{mes:02d}-01", f"{anio}-{mes:02d}-31"))
+    return cur.fetchall()
+
+# ═══════════════════════════════════════════════════
+# V2 ENDPOINTS (agenda web frontend)
+# ═══════════════════════════════════════════════════
+@app.get("/api/v2/datos")
+def datos_v2():
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, nombre, ciudad, hora_inicio, hora_fin FROM sedes WHERE activo")
+    sedes = {}
+    for r in cur.fetchall():
+        sedes[r["id"]] = {"id": r["id"], "nombre": r["nombre"], "ciudad": r["ciudad"], "horaInicio": str(r["hora_inicio"])[:5], "horaFin": str(r["hora_fin"])[:5]}
+    cur.execute("SELECT id, nombre, duracion FROM servicios WHERE activo")
+    servicios = {}
+    for r in cur.fetchall():
+        servicios[r["id"]] = {"id": r["id"], "nombre": r["nombre"], "duracion": r["duracion"]}
+    cur.execute("SELECT id, nombre, color, tipo, inicial FROM estados WHERE activo")
+    estados = {}
+    for r in cur.fetchall():
+        estados[r["id"]] = {"id": r["id"], "nombre": r["nombre"], "color": r["color"], "tipo": r["tipo"], "inicial": r["inicial"]}
+    cur.execute("SELECT id, nombres, apellidos, color FROM especialistas WHERE activo")
+    especialistas = {}
+    for r in cur.fetchall():
+        eid = r["id"]
+        esp_data = {"id": eid, "nombres": r["nombres"], "apellidos": r["apellidos"], "color": r["color"], "horarios": []}
+        cur2 = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur2.execute("SELECT dia, desde, hasta, alm_desde, alm_hasta, sede_id FROM horarios WHERE especialista_id=%s ORDER BY dia", (eid,))
+        for h in cur2.fetchall():
+            d = str(h["desde"])[:5] if h["desde"] else None
+            hs = str(h["hasta"])[:5] if h["hasta"] else None
+            ad = str(h["alm_desde"])[:5] if h["alm_desde"] else None
+            ah = str(h["alm_hasta"])[:5] if h["alm_hasta"] else None
+            esp_data["horarios"].append({"dia": h["dia"], "desde": d, "hasta": hs, "almDesde": ad, "almHasta": ah, "sedeId": h["sede_id"]})
+        cur2.close()
+        especialistas[eid] = esp_data
+    return {"sedes": sedes, "servicios": servicios, "estados": estados, "especialistas": especialistas}
+
+@app.get("/api/v2/agenda/{sede_id}/{fecha}")
+def agenda_v2(sede_id: str, fecha: date):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if sede_id == "todas":
+        cur.execute("SELECT a.*, c.primer_nombre || ' ' || c.primer_apellido as cliente_nombre, c.telefono, s.nombre as servicio_nombre, e.nombre_corto as especialista_nombre, est.color as estado_color, est.nombre as estado_nombre FROM v_agenda a JOIN clientes c ON c.id=a.cliente_id JOIN servicios s ON s.id=a.servicio_id JOIN v_especialistas e ON e.id=a.especialista_id JOIN estados est ON est.id=a.estado_id WHERE a.fecha=%s ORDER BY a.sede_id, a.inicio", (fecha,))
+    else:
+        cur.execute("SELECT a.*, c.primer_nombre || ' ' || c.primer_apellido as cliente_nombre, c.telefono, s.nombre as servicio_nombre, e.nombre_corto as especialista_nombre, est.color as estado_color, est.nombre as estado_nombre FROM v_agenda a JOIN clientes c ON c.id=a.cliente_id JOIN servicios s ON s.id=a.servicio_id JOIN v_especialistas e ON e.id=a.especialista_id JOIN estados est ON est.id=a.estado_id WHERE a.sede_id=%s AND a.fecha=%s ORDER BY a.inicio", (sede_id, fecha))
+    return cur.fetchall()

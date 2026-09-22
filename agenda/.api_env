@@ -1,0 +1,5 @@
+DATABASE_URL=postgresql://postgres@127.0.0.1:5432/cjmedical
+API_TOKEN=nWeGsA3X8h_904IUbNGV-5YXrOZo0-vZKPX6maZDEv8
+ORIGENES=https://agenda.universojota.tech
+COOKIE_SEGURA=1
+HORAS_SESION=12

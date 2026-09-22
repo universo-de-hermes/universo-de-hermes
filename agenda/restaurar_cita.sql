@@ -1,0 +1,2 @@
+insert into citas (id,tipo,fecha,inicio,fin,especialista_id,sede_id,servicio_id,cliente_id,estado_id,canal,asignada_por,notas,importado,creado_en,creado_por) values ('imp-299','cita','2026-06-18','14:00','15:00','esp-valentina-rivillas-baquero-42','sede-cj-medical-el-tesoro','srv-hidrafacial-plus','cli-1000084923','est-realizado','Call Center','ASESOR CC 3 CATALINA JARAMILLO','',true,coalesce('2026-06-16'::timestamp, now()),'');
+SELECT 'citas' AS q, count(*)::text FROM citas UNION ALL SELECT 'imp-299', count(*)::text FROM citas WHERE id='imp-299';

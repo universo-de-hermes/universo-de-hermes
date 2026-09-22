@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,300..800;1,8..60,400&display=swap">
+<link rel="stylesheet" href="_ds/broadsheet-b2a63a81-f5ee-47cd-b7a7-1ac513d8f411/styles.css">
+<script src="_ds/broadsheet-b2a63a81-f5ee-47cd-b7a7-1ac513d8f411/_ds_bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Reflector.js"></script>
+<style>
+html,body{margin:0;padding:0;background:#0a0a1a;overflow:hidden;}
+*{box-sizing:border-box;}
+a{color:#45C4F5;text-decoration:none;}
+a:hover{color:#B0E0E6;}
+@keyframes cc-pulse{0%,100%{opacity:.35}50%{opacity:.9}}
+@keyframes cc-scan{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}
+@keyframes cc-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.cc-roster::-webkit-scrollbar{width:4px}
+.cc-roster::-webkit-scrollbar-thumb{background:#6C3BD2}
+</style>
+</helmet>
+<div style="position:relative;width:100vw;height:100vh;background:radial-gradient(120% 90% at 50% 0%,#141335 0%,#0a0a1a 60%,#05050f 100%);font-family:'JetBrains Mono',ui-monospace,monospace;color:#dfe4f5;overflow:hidden;">
+
+  <div ref="{{ mount }}" style="position:absolute;inset:0;"></div>
+
+  <div style="position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(to bottom,rgba(180,220,255,.045) 0px,rgba(180,220,255,.045) 1px,transparent 1px,transparent 3px);mix-blend-mode:screen;"></div>
+  <div style="position:absolute;left:0;right:0;height:26vh;pointer-events:none;background:linear-gradient(to bottom,rgba(108,59,210,0) 0%,rgba(140,90,255,.14) 60%,rgba(108,59,210,0) 100%);animation:cc-scan 7s linear infinite;"></div>
+  <div style="position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 220px 60px rgba(5,5,15,.9);"></div>
+
+  <div style="position:absolute;top:22px;left:26px;pointer-events:none;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:9px;height:9px;background:#45C4F5;box-shadow:0 0 12px 3px rgba(69,196,245,.9);animation:cc-pulse 1.6s ease-in-out infinite;"></div>
+      <div style="font-size:11px;letter-spacing:.34em;color:#8f9ec6;">COMMAND CENTER · WEBGL LINK ESTABLE</div>
+    </div>
+    <div style="margin-top:8px;font-family:'Source Serif 4',Georgia,serif;font-size:46px;font-weight:700;letter-spacing:.01em;color:#f2f4ff;text-shadow:0 0 30px rgba(108,59,210,.8);">Houdini Control</div>
+    <div style="margin-top:6px;font-size:12px;letter-spacing:.2em;color:#6f7ba4;white-space:nowrap;">ORQUESTACIÓN · <span style="color:var(--color-accent-300,#45C4F5);">{{ activeCount }}</span> / {{ totalCount }} ACTIVOS</div>
+  </div>
+
+  <div style="position:absolute;top:24px;right:26px;display:flex;flex-direction:column;gap:10px;align-items:flex-end;">
+    <div style="display:flex;gap:8px;">
+      <button onClick="{{ activateAll }}" style="cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:.18em;padding:10px 16px;color:#eafcff;background:color-mix(in oklch,var(--color-accent,#0088b0) 26%,transparent);border:1px solid color-mix(in oklch,var(--color-accent-300,#45C4F5) 70%,transparent);backdrop-filter:blur(6px);box-shadow:0 0 18px color-mix(in oklch,var(--color-accent,#0088b0) 30%,transparent) inset;" style-hover="background:color-mix(in oklch,var(--color-accent-300,#45C4F5) 34%,transparent);box-shadow:0 0 24px color-mix(in oklch,var(--color-accent-300,#45C4F5) 50%,transparent);">ACTIVAR TODOS</button>
+      <button onClick="{{ deactivateAll }}" style="cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:.18em;padding:10px 16px;color:#ffd9ec;background:color-mix(in oklch,var(--color-accent-2,#d6006c) 14%,transparent);border:1px solid color-mix(in oklch,var(--color-accent-2,#d6006c) 60%,transparent);backdrop-filter:blur(6px);" style-hover="background:color-mix(in oklch,var(--color-accent-2,#d6006c) 30%,transparent);box-shadow:0 0 24px color-mix(in oklch,var(--color-accent-2,#d6006c) 45%,transparent);">DESACTIVAR TODOS</button>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onClick="{{ viewMain }}" style="cursor:pointer;font-family:inherit;font-size:10px;letter-spacing:.16em;padding:8px 13px;color:#c9cfe8;background:rgba(255,255,255,.04);border:1px solid rgba(160,175,220,.28);" style-hover="border-color:#6C3BD2;color:#fff;">VISTA HOUDINI</button>
+      <button onClick="{{ viewReception }}" style="cursor:pointer;font-family:inherit;font-size:10px;letter-spacing:.16em;padding:8px 13px;color:#c9cfe8;background:rgba(255,255,255,.04);border:1px solid rgba(160,175,220,.28);" style-hover="border-color:#B8860B;color:#fff;">VISTA RECEPCIÓN</button>
+      <button onClick="{{ viewWide }}" style="cursor:pointer;font-family:inherit;font-size:10px;letter-spacing:.16em;padding:8px 13px;color:#c9cfe8;background:rgba(255,255,255,.04);border:1px solid rgba(160,175,220,.28);" style-hover="border-color:#45C4F5;color:#fff;">VISTA GENERAL</button>
+    </div>
+  </div>
+
+  <div class="cc-roster" style="position:absolute;left:26px;top:198px;bottom:56px;width:222px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-right:6px;">
+    <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="2">
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <div style="font-size:9px;letter-spacing:.3em;color:#5d6a92;padding-bottom:4px;">{{ sec.label }}</div>
+        <sc-for list="{{ sec.items }}" as="ag" hint-placeholder-count="5">
+          <div onClick="{{ ag.select }}" style="cursor:pointer;display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:10px;padding:7px 9px;background:{{ ag.rowBg }};border-left:2px solid {{ ag.color }};font-size:11px;letter-spacing:.08em;color:#d5dbf0;" style-hover="background:rgba(108,59,210,.22);">
+            <div style="width:8px;height:8px;border-radius:50%;background:{{ ag.color }};box-shadow:{{ ag.dotGlow }};"></div>
+            <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ ag.name }}</div>
+            <div style="font-size:8px;letter-spacing:.12em;color:{{ ag.stateColor }};">{{ ag.stateShort }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;right:26px;bottom:34px;width:404px;padding:22px 24px 24px;background:linear-gradient(160deg,rgba(16,18,44,.93),rgba(8,9,24,.93));border:1px solid rgba(140,160,220,.22);border-top:2px solid {{ selColor }};backdrop-filter:blur(10px);box-shadow:0 24px 60px rgba(0,0,0,.6);animation:cc-in .22s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+        <div>
+          <div style="font-size:9px;letter-spacing:.3em;color:#6f7ba4;">{{ selRole }}</div>
+          <div style="margin-top:7px;font-family:'Source Serif 4',Georgia,serif;font-size:32px;font-weight:700;letter-spacing:.01em;color:#f4f6ff;">{{ selName }}</div>
+        </div>
+        <div onClick="{{ clearSelection }}" style="cursor:pointer;font-size:14px;color:#7c86ab;padding:2px 6px;" style-hover="color:#fff;">✕</div>
+      </div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:9px;">
+        <div style="width:7px;height:7px;background:{{ selStateColor }};box-shadow:0 0 10px 2px {{ selStateColor }};"></div>
+        <div style="font-size:10px;letter-spacing:.22em;color:{{ selStateColor }};">{{ selState }}</div>
+      </div>
+      <div style="margin-top:14px;font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:1.6;color:#c2cae4;text-wrap:pretty;">{{ selDesc }}</div>
+      <div style="margin-top:18px;font-size:9px;letter-spacing:.28em;color:#5d6a92;">TOOLS</div>
+      <div style="margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;">
+        <sc-for list="{{ selTools }}" as="t" hint-placeholder-count="4">
+          <div style="font-size:10px;letter-spacing:.1em;padding:5px 9px;color:#cfd6ef;background:rgba(255,255,255,.05);border:1px solid color-mix(in oklch,var(--color-accent-300,#45C4F5) 26%,transparent);">{{ t }}</div>
+        </sc-for>
+      </div>
+      <div onClick="{{ toggleSelected }}" style="margin-top:20px;cursor:pointer;text-align:center;font-size:11px;letter-spacing:.2em;padding:11px;color:#0a0a1a;background:{{ selColor }};opacity:{{ selBtnOpacity }};" style-hover="filter:brightness(1.15);">{{ selToggleLabel }}</div>
+    </div>
+  </sc-if>
+
+  <div style="position:absolute;bottom:26px;left:50%;transform:translateX(-50%);font-size:9px;letter-spacing:.26em;color:#4e5878;pointer-events:none;white-space:nowrap;">ARRASTRA PARA ORBITAR · SCROLL PARA ZOOM · CLICK EN UN AGENTE</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;autoOrbit&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Escena&quot;},&quot;showMatrix&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Escena&quot;},&quot;glow&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0.3,&quot;max&quot;:2,&quot;step&quot;:0.1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Escena&quot;}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.state = { selected: null, active: {}, ready: false };
+    this.mount = React.createRef();
+    this.agents = [
+      { id:'houdini', name:'HOUDINI', role:'ORQUESTADOR PRINCIPAL', color:'#6C3BD2', icon:'wizard', scale:1.55, pos:[0,0,0], zone:'main', wizard:true,
+        desc:'Núcleo de orquestación. Interpreta la intención del usuario, planifica la cadena de tareas y delega en los agentes especializados, consolidando sus respuestas en una sola salida.',
+        tools:['router','planner','memory','delegate()','audit-log'] },
+      { id:'gmail', name:'GMAIL AGENT', role:'CORREO', color:'#4285F4', icon:'mail', zone:'main',
+        desc:'Lee, redacta y clasifica correo. Extrae adjuntos y detecta solicitudes que deben convertirse en tareas.',
+        tools:['gmail.search','gmail.send','gmail.labels','attachments'] },
+      { id:'calendar', name:'CALENDAR AGENT', role:'AGENDA', color:'#2ECC71', icon:'calendar', zone:'main',
+        desc:'Consulta disponibilidad, crea y reagenda eventos, y envía recordatorios con zona horaria resuelta.',
+        tools:['calendar.list','calendar.insert','freebusy','reminders'] },
+      { id:'sheets', name:'SHEETS AGENT', role:'DATOS TABULARES', color:'#B0E0E6', icon:'table', zone:'main',
+        desc:'Lee y escribe hojas de cálculo, normaliza rangos y mantiene los registros operativos del sistema.',
+        tools:['sheets.read','sheets.append','formulas','pivot'] },
+      { id:'drive', name:'DRIVE AGENT', role:'ARCHIVOS', color:'#FFD400', icon:'cloud', zone:'main',
+        desc:'Almacena, versiona y comparte archivos. Resuelve permisos y devuelve enlaces firmados.',
+        tools:['drive.upload','drive.search','permissions','versions'] },
+      { id:'telegram', name:'TELEGRAM AGENT', role:'MENSAJERÍA', color:'#45C4F5', icon:'telegram', zone:'main',
+        desc:'Canal de mensajería en tiempo real: notificaciones, comandos rápidos y confirmaciones del operador.',
+        tools:['sendMessage','inline-keyboard','webhook','files'] },
+      { id:'tts', name:'TTS AGENT', role:'VOZ', color:'#E6E6FA', icon:'speaker', zone:'main',
+        desc:'Convierte texto en voz para resúmenes hablados y respuestas por audio en los canales de mensajería.',
+        tools:['synthesize','voice-presets','ssml','audio.upload'] },
+      { id:'dashboard', name:'DASHBOARD AGENT', role:'MÉTRICAS', color:'#FF8C1A', icon:'chart', zone:'main',
+        desc:'Agrega métricas de ejecución de la flota y publica tableros con latencia, coste y tasa de error.',
+        tools:['metrics.query','charts.render','alerts','export'] },
+      { id:'design', name:'DESIGN AGENT', role:'PIEZAS VISUALES', color:'#FF6FB5', icon:'brush', zone:'main',
+        desc:'Genera piezas visuales y plantillas a partir del sistema de diseño, listas para publicar o adjuntar.',
+        tools:['layout','tokens','export.png','templates'] },
+      { id:'whatsapp2', name:'WHATSAPP AGENT', role:'FASE 2 · NO DESPLEGADO', color:'#7A8090', icon:'whatsapp', zone:'main', disabled:true,
+        desc:'Integración planificada para la fase 2. El canal queda declarado en el grafo pero sin credenciales ni tráfico.',
+        tools:['— pendiente —'] },
+      { id:'recep', name:'RECEPCIONISTA BOT', role:'RECEPCIÓN · FRONT DESK', color:'#B8860B', icon:'headset', scale:1.2, zone:'recep',
+        desc:'Atiende la primera línea de conversación en WhatsApp: saluda, califica la intención y decide si resuelve, agenda o escala.',
+        tools:['intents','faq','qualify','route'] },
+      { id:'recep-cal', name:'CALENDAR AGENT', role:'RECEPCIÓN · AGENDA', color:'#2ECC71', icon:'calendar', scale:0.78, zone:'recep',
+        desc:'Versión reducida del agente de agenda: solo reserva citas dentro de los horarios habilitados por recepción.',
+        tools:['freebusy','book','cancel'] },
+      { id:'wa-sender', name:'WHATSAPP SENDER', role:'RECEPCIÓN · ENVÍOS', color:'#128C7E', icon:'whatsapp', zone:'recep',
+        desc:'Emite los mensajes salientes por la API de WhatsApp: plantillas aprobadas, confirmaciones y seguimientos.',
+        tools:['templates','send','delivery-status'] },
+      { id:'handoff', name:'HUMAN HANDOFF', role:'RECEPCIÓN · ESCALADO', color:'#C2C8D6', icon:'handoff', zone:'recep',
+        desc:'Transfiere la conversación a una persona con el contexto completo del hilo y marca la sesión como asistida.',
+        tools:['transfer','context-dump','notify-agent'] }
+    ];
+  }
+
+  componentDidMount(){ this.waitLibs(); }
+  componentWillUnmount(){
+    this._dead = true;
+    if(this._raf) cancelAnimationFrame(this._raf);
+    window.removeEventListener('resize', this._onResize);
+    if(this.renderer){ this.renderer.dispose(); }
+  }
+
+  waitLibs(){
+    if(this._dead) return;
+    if(window.THREE && THREE.OrbitControls){ this.init(); return; }
+    setTimeout(()=>this.waitLibs(), 60);
+  }
+
+  /* ---------- textures ---------- */
+  labelTexture(text, color, sub){
+    const c = document.createElement('canvas'); c.width=560; c.height=150;
+    const x = c.getContext('2d');
+    x.fillStyle='rgba(8,10,26,.72)'; x.fillRect(0,34,560,58);
+    x.fillStyle=color; x.fillRect(0,34,5,58);
+    x.font='600 40px "JetBrains Mono", monospace'; x.textBaseline='middle';
+    x.fillStyle='#eef1ff'; x.fillText(text, 20, 64);
+    if(sub){ x.font='400 24px "JetBrains Mono", monospace'; x.fillStyle=color; x.fillText(sub, 20, 112); }
+    const t = new THREE.CanvasTexture(c); t.needsUpdate=true; return t;
+  }
+
+  iconTexture(kind, color){
+    const c = document.createElement('canvas'); c.width=256; c.height=256;
+    const x = c.getContext('2d');
+    x.strokeStyle=color; x.fillStyle=color; x.lineWidth=11; x.lineJoin='round'; x.lineCap='round';
+    x.globalAlpha=.14; x.fillRect(24,24,208,208); x.globalAlpha=1;
+    x.globalAlpha=.5; x.strokeRect(24,24,208,208); x.globalAlpha=1; x.lineWidth=11;
+    const P=(pts,close)=>{x.beginPath();pts.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));if(close)x.closePath();x.stroke();};
+    switch(kind){
+      case 'mail': x.strokeRect(62,86,132,84); P([[62,86],[128,132],[194,86]]); break;
+      case 'calendar': x.strokeRect(62,82,132,92); P([[62,112],[194,112]]); P([[90,64],[90,92]]); P([[166,64],[166,92]]);
+        x.fillRect(88,130,20,18); x.fillRect(126,130,20,18); break;
+      case 'table': x.strokeRect(58,74,140,108); P([[58,110],[198,110]]); P([[58,146],[198,146]]); P([[104,74],[104,182]]); P([[152,74],[152,182]]); break;
+      case 'cloud': x.beginPath(); x.arc(104,124,34,Math.PI*.6,Math.PI*1.9); x.arc(154,120,28,Math.PI*1.2,Math.PI*.4); x.lineTo(180,158); x.lineTo(78,158); x.closePath(); x.stroke();
+        P([[128,116],[128,66]]); P([[110,84],[128,66],[146,84]]); break;
+      case 'telegram': P([[54,124],[204,66],[168,196],[116,152]],true); P([[116,152],[204,66]]); break;
+      case 'speaker': P([[70,104],[104,104],[144,68],[144,190],[104,152],[70,152]],true);
+        x.beginPath(); x.arc(160,128,26,-1,1); x.stroke(); x.beginPath(); x.arc(160,128,50,-1,1); x.stroke(); break;
+      case 'chart': x.lineWidth=18; P([[80,180],[80,132]]); P([[128,180],[128,92]]); P([[176,180],[176,116]]); x.lineWidth=8; P([[58,196],[198,196]]); break;
+      case 'brush': P([[70,190],[126,134]]); x.lineWidth=26; P([[140,120],[188,72]]); x.lineWidth=11; P([[62,198],[86,176]]); break;
+      case 'whatsapp': x.beginPath(); x.arc(128,124,62,0,Math.PI*2); x.stroke(); P([[92,196],[74,178]]);
+        x.lineWidth=16; P([[106,104],[112,126],[136,150],[154,152]]); break;
+      case 'headset': x.beginPath(); x.arc(128,126,58,Math.PI,0); x.stroke(); x.fillRect(60,120,24,50); x.fillRect(172,120,24,50);
+        P([[184,170],[184,190],[132,190]]); break;
+      case 'handoff': P([[66,104],[190,104]]); P([[164,80],[190,104],[164,128]]); P([[190,158],[66,158]]); P([[92,134],[66,158],[92,182]]); break;
+      default: /* wizard */ P([[64,186],[128,52],[192,186]],true); P([[84,152],[172,152]]);
+        x.beginPath(); x.arc(128,110,8,0,Math.PI*2); x.fill();
+        x.lineWidth=7; P([[196,74],[212,74]]); P([[204,66],[204,82]]); P([[44,110],[58,110]]); P([[51,103],[51,117]]);
+    }
+    const t = new THREE.CanvasTexture(c); t.needsUpdate=true; return t;
+  }
+
+  signTexture(){
+    const c = document.createElement('canvas'); c.width=1024; c.height=256;
+    const x = c.getContext('2d');
+    x.fillStyle='rgba(10,12,28,.8)'; x.fillRect(0,0,1024,256);
+    x.strokeStyle='#B8860B'; x.lineWidth=6; x.strokeRect(10,10,1004,236);
+    x.fillStyle='#B8860B'; x.font='800 82px "JetBrains Mono", monospace'; x.textBaseline='middle';
+    x.fillText('RECEPCIONISTA', 56, 96); x.fillStyle='#25D366'; x.fillText('WHATSAPP', 56, 182);
+    x.fillStyle='#8a93b5'; x.font='400 26px "JetBrains Mono", monospace'; x.fillText('PROYECTO INDEPENDIENTE · NIVEL -1', 560, 182);
+    const t = new THREE.CanvasTexture(c); t.needsUpdate=true; return t;
+  }
+
+  panelTexture(tint){
+    const c = document.createElement('canvas'); c.width=512; c.height=512;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0,0,0,512); g.addColorStop(0,tint); g.addColorStop(1,'rgba(0,0,0,0)');
+    x.fillStyle=g; x.globalAlpha=.35; x.fillRect(0,0,512,512); x.globalAlpha=1;
+    x.strokeStyle=tint; x.lineWidth=1.5;
+    for(let i=0;i<=512;i+=32){ x.beginPath(); x.moveTo(0,i); x.lineTo(512,i); x.stroke(); x.beginPath(); x.moveTo(i,0); x.lineTo(i,512); x.stroke(); }
+    x.fillStyle=tint;
+    for(let i=0;i<26;i++){ const w=40+Math.random()*180; x.globalAlpha=.25+Math.random()*.5; x.fillRect(28, 40+i*17, w, 6); }
+    x.globalAlpha=1;
+    const t = new THREE.CanvasTexture(c); t.needsUpdate=true; return t;
+  }
+
+  /* ---------- build ---------- */
+  buildAgent(a){
+    const g = new THREE.Group();
+    const s = a.scale || 1;
+    const col = new THREE.Color(a.color);
+    const dim = !!a.disabled;
+    const body = (c,e)=> new THREE.MeshStandardMaterial({ color:new THREE.Color(c), emissive:new THREE.Color(c).multiplyScalar(dim?0.03:(e===undefined?0.3:e)), metalness:.72, roughness:.3 });
+    const dark = new THREE.MeshStandardMaterial({ color:0x161a2e, emissive:new THREE.Color(a.color).multiplyScalar(dim?0:.18), metalness:.85, roughness:.35 });
+
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(.34*s,.5*s,1.05*s,14), body(a.color));
+    torso.position.y = 1.15*s; g.add(torso);
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(.5*s,.3*s,.16*s), dark);
+    chest.position.set(0,1.4*s,.36*s); g.add(chest);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(.09*s,.09*s,.18*s,8), dark);
+    neck.position.y = 1.78*s; g.add(neck);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(.31*s,20,16), body(a.color,.22));
+    head.position.y = 2.06*s; g.add(head);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(.42*s,.13*s,.1*s), new THREE.MeshStandardMaterial({ color:0x05060f, emissive:new THREE.Color(dim?0x2a2f3d:0x9fe8ff), emissiveIntensity:dim?.2:1.4, metalness:.6, roughness:.2 }));
+    visor.position.set(0,2.08*s,.27*s); g.add(visor);
+    [-1,1].forEach(d=>{
+      const armGeo = typeof THREE.CapsuleGeometry === 'function'
+        ? new THREE.CapsuleGeometry(.075*s,.6*s,4,8)
+        : new THREE.CylinderGeometry(.075*s,.075*s,.7*s,8);
+      const arm = new THREE.Mesh(armGeo, body(a.color,.18));
+      arm.position.set(d*.5*s,1.2*s,0); arm.rotation.z = d*0.22; g.add(arm);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(.1*s,.08*s,.55*s,8), dark);
+      leg.position.set(d*.17*s,.38*s,0); g.add(leg);
+    });
+
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(.72*s,.028*s,8,48), new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:dim?.18:.7 }));
+    ring.rotation.x = Math.PI/2; ring.position.y = .08; g.add(ring);
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(.95*s,.012*s,6,48), new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:dim?.1:.35 }));
+    ring2.rotation.x = Math.PI/2; ring2.position.y = .05; g.add(ring2);
+
+    if(a.wizard){
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(.34*s,.95*s,18), body('#4B2496',.35));
+      hat.position.y = 2.62*s; hat.rotation.z = .08; g.add(hat);
+      const brim = new THREE.Mesh(new THREE.TorusGeometry(.36*s,.055*s,8,24), body('#8A5BEA',.4));
+      brim.rotation.x = Math.PI/2; brim.position.y = 2.2*s; g.add(brim);
+      const cape = new THREE.Mesh(new THREE.ConeGeometry(.62*s,1.5*s,16,1,true), new THREE.MeshStandardMaterial({ color:0x3d1f7d, emissive:new THREE.Color('#6C3BD2').multiplyScalar(.25), metalness:.5, roughness:.5, side:THREE.DoubleSide, transparent:true, opacity:.92 }));
+      cape.position.set(0,1.2*s,-.22*s); cape.rotation.x = -.1; g.add(cape);
+    }
+    if(a.icon==='headset'){
+      const band = new THREE.Mesh(new THREE.TorusGeometry(.33*s,.035*s,8,24,Math.PI), new THREE.MeshStandardMaterial({ color:0x20263c, emissive:new THREE.Color(a.color).multiplyScalar(.35), metalness:.8, roughness:.3 }));
+      band.position.y = 2.1*s; g.add(band);
+      const mic = new THREE.Mesh(new THREE.CylinderGeometry(.02*s,.02*s,.3*s,6), body(a.color,.5));
+      mic.position.set(.2*s,1.98*s,.16*s); mic.rotation.z = .9; g.add(mic);
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(.3*s,.05*s,8,20), body('#E8D8A0',.3));
+      collar.rotation.x = Math.PI/2; collar.position.y = 1.68*s; g.add(collar);
+    }
+
+    // orbiting particles
+    const N = 46, pos = new Float32Array(N*3), seeds = [];
+    for(let i=0;i<N;i++){
+      const ang = Math.random()*Math.PI*2, r = (.85+Math.random()*.5)*s, h = Math.random()*2.4*s;
+      seeds.push({ang,r,h,sp:.3+Math.random()*.9});
+      pos[i*3]=Math.cos(ang)*r; pos[i*3+1]=h; pos[i*3+2]=Math.sin(ang)*r;
+    }
+    const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    const parts = new THREE.Points(pg, new THREE.PointsMaterial({ color:col, size:.075*s, transparent:true, opacity:dim?.1:.55, blending:THREE.AdditiveBlending, depthWrite:false }));
+    g.add(parts);
+
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map:this.labelTexture(a.name, a.color, a.disabled?'FASE 2 · OFF':null), transparent:true, depthTest:false }));
+    label.scale.set(3.2, .86, 1); label.position.y = 2.7*s + (a.wizard?1.1:0); g.add(label);
+
+    const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map:this.iconTexture(a.icon, a.color), transparent:true, opacity:dim?.25:.85, blending:THREE.AdditiveBlending, depthWrite:false }));
+    icon.scale.set(.8,.8,1); icon.position.set(.95*s, 1.9*s, 0); g.add(icon);
+
+    const light = new THREE.PointLight(col, dim?0:0.6, 7); light.position.y = 1.4*s; g.add(light);
+
+    g.position.set(a.pos[0], a.pos[1], a.pos[2]);
+    g.traverse(o=>{ if(o.isMesh) o.userData.agentId = a.id; });
+    g.userData = { agent:a, seeds, parts, ring, ring2, icon, light, label, base:a.pos[1], phase:Math.random()*Math.PI*2, meshes:[torso,head], hover:0, cur:0 };
+    return g;
+  }
+
+  init(){
+    const el = this.mount.current; if(!el) return;
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x07071a, 0.022);
+    const camera = new THREE.PerspectiveCamera(46, el.clientWidth/el.clientHeight, .1, 400);
+    camera.position.set(12, 13, 22);
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
+    renderer.setSize(el.clientWidth, el.clientHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    el.appendChild(renderer.domElement);
+    this.scene=scene; this.camera=camera; this.renderer=renderer;
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = .06;
+    controls.minDistance = 8; controls.maxDistance = 62;
+    controls.maxPolarAngle = Math.PI*0.49; controls.target.set(3,1.4,2);
+    this.controls = controls;
+
+    scene.add(new THREE.AmbientLight(0x4a5aa0, .55));
+    const key = new THREE.DirectionalLight(0xa9c4ff, .5); key.position.set(-14,22,10); scene.add(key);
+    const p1 = new THREE.PointLight(0x6C3BD2, 2.2, 44); p1.position.set(0,10,0); scene.add(p1);
+    const p2 = new THREE.PointLight(0x45C4F5, 1.4, 48); p2.position.set(-18,7,-12); scene.add(p2);
+    const p3 = new THREE.PointLight(0xd6006c, 1.1, 48); p3.position.set(20,6,14); scene.add(p3);
+
+    // reflective floor
+    if(THREE.Reflector){
+      const mirror = new THREE.Reflector(new THREE.PlaneGeometry(150,150), { textureWidth:1024, textureHeight:1024, color:0x0e1024 });
+      mirror.rotation.x = -Math.PI/2; mirror.position.y = -0.02; scene.add(mirror);
+    }
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(150,150), new THREE.MeshStandardMaterial({ color:0x0a0a1e, metalness:.95, roughness:.35, transparent:true, opacity:.72 }));
+    floor.rotation.x = -Math.PI/2; scene.add(floor);
+    const grid = new THREE.GridHelper(150, 75, 0x45C4F5, 0x2a2f6b);
+    grid.material.transparent = true; grid.material.opacity = .3; grid.position.y = .01; scene.add(grid);
+
+    // main platform
+    const plat = new THREE.Mesh(new THREE.CylinderGeometry(10.5,10.5,.12,72), new THREE.MeshStandardMaterial({ color:0x11132c, metalness:.9, roughness:.3, transparent:true, opacity:.85 }));
+    plat.position.y = .02; scene.add(plat);
+    const platRim = new THREE.Mesh(new THREE.TorusGeometry(10.5,.05,8,90), new THREE.MeshBasicMaterial({ color:0x6C3BD2 }));
+    platRim.rotation.x = Math.PI/2; platRim.position.y = .1; scene.add(platRim);
+    const innerRim = new THREE.Mesh(new THREE.TorusGeometry(7.2,.02,6,90), new THREE.MeshBasicMaterial({ color:0x45C4F5, transparent:true, opacity:.5 }));
+    innerRim.rotation.x = Math.PI/2; innerRim.position.y = .09; scene.add(innerRim);
+
+    // reception platform (lower level, to the right)
+    const R = { x:24, y:-1.5, z:9 };
+    this.receptionCenter = new THREE.Vector3(R.x, R.y+1.4, R.z);
+    const rp = new THREE.Mesh(new THREE.BoxGeometry(17,.5,10), new THREE.MeshStandardMaterial({ color:0x131427, metalness:.9, roughness:.32 }));
+    rp.position.set(R.x, R.y, R.z); scene.add(rp);
+    const rGrid = new THREE.GridHelper(17, 17, 0xB8860B, 0x3a3320);
+    rGrid.material.transparent=true; rGrid.material.opacity=.4; rGrid.position.set(R.x, R.y+.26, R.z); scene.add(rGrid);
+    const rEdge = new THREE.Mesh(new THREE.BoxGeometry(17.2,.06,10.2), new THREE.MeshBasicMaterial({ color:0xB8860B, transparent:true, opacity:.6 }));
+    rEdge.position.set(R.x, R.y+.28, R.z); scene.add(rEdge);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(10,2.5), new THREE.MeshBasicMaterial({ map:this.signTexture(), transparent:true, side:THREE.DoubleSide }));
+    sign.position.set(R.x, R.y+5.4, R.z-5.2); scene.add(sign);
+    [-4.6,4.6].forEach(dx=>{
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(.09,.09,4.4,8), new THREE.MeshStandardMaterial({ color:0x22243c, emissive:0x3a2c08, metalness:.8, roughness:.4 }));
+      post.position.set(R.x+dx, R.y+2.2, R.z-5.2); scene.add(post);
+    });
+    // link beam between projects
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,15,6), new THREE.MeshBasicMaterial({ color:0x45C4F5, transparent:true, opacity:.22 }));
+    beam.position.set(12.6,.9,4.5); beam.rotation.z = Math.PI/2; beam.rotation.y = -0.63; scene.add(beam);
+
+    // holographic wall panels
+    const tints = ['rgba(69,196,245,1)','rgba(108,59,210,1)','rgba(214,0,108,1)','rgba(69,196,245,1)'];
+    for(let i=0;i<4;i++){
+      const a = (-0.9 + i*0.6);
+      const pan = new THREE.Mesh(new THREE.PlaneGeometry(9,5.4), new THREE.MeshBasicMaterial({ map:this.panelTexture(tints[i]), transparent:true, opacity:.42, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
+      pan.position.set(Math.sin(a+Math.PI)*20, 5.4, Math.cos(a+Math.PI)*20);
+      pan.lookAt(0,4,0); scene.add(pan);
+      this._panels = this._panels||[]; this._panels.push(pan);
+    }
+    for(let i=0;i<10;i++){
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,26,6), new THREE.MeshBasicMaterial({ color:i%2?0x6C3BD2:0x45C4F5, transparent:true, opacity:.16 }));
+      const ang = i/10*Math.PI*2;
+      b.position.set(Math.cos(ang)*26, 13, Math.sin(ang)*26); scene.add(b);
+    }
+
+    // matrix particles
+    const CN = 1600, cp = new Float32Array(CN*3), cc = new Float32Array(CN*3), cs = [];
+    const ca = new THREE.Color(0x45C4F5), cb = new THREE.Color(0x8A5BEA);
+    for(let i=0;i<CN;i++){
+      cp[i*3]=(Math.random()-.5)*110; cp[i*3+1]=Math.random()*40; cp[i*3+2]=(Math.random()-.5)*110;
+      const c = Math.random()>.5?ca:cb; cc[i*3]=c.r; cc[i*3+1]=c.g; cc[i*3+2]=c.b;
+      cs.push(.02+Math.random()*.09);
+    }
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.BufferAttribute(cp,3));
+    cg.setAttribute('color', new THREE.BufferAttribute(cc,3));
+    this.rain = new THREE.Points(cg, new THREE.PointsMaterial({ size:.12, vertexColors:true, transparent:true, opacity:.6, blending:THREE.AdditiveBlending, depthWrite:false }));
+    this.rainSpeeds = cs; scene.add(this.rain);
+
+    // agents
+    const mainAgents = this.agents.filter(a=>a.zone==='main');
+    const sats = mainAgents.filter(a=>a.id!=='houdini');
+    sats.forEach((a,i)=>{ const ang = -Math.PI/2 + i*(Math.PI*2/sats.length); a.pos=[Math.cos(ang)*7.1, 0, Math.sin(ang)*7.1]; });
+    this.agents.find(a=>a.id==='houdini').pos=[0,0,0];
+    const recs = this.agents.filter(a=>a.zone==='recep');
+    recs.forEach((a,i)=>{ a.pos=[R.x - 5.4 + i*3.6, R.y+0.25, R.z+0.6]; });
+
+    this.groups = this.agents.map(a=>{ const g = this.buildAgent(a); scene.add(g); return g; });
+    this.pickables = []; this.groups.forEach(g=>g.traverse(o=>{ if(o.isMesh) this.pickables.push(o); }));
+
+    this.ray = new THREE.Raycaster(); this.pointer = new THREE.Vector2(-9,-9);
+    const dom = renderer.domElement;
+    dom.addEventListener('pointermove', e=>{
+      const r = dom.getBoundingClientRect();
+      this.pointer.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1);
+    });
+    dom.addEventListener('pointerdown', ()=>{ this._down = {x:this.pointer.x, y:this.pointer.y}; });
+    dom.addEventListener('pointerup', ()=>{
+      if(!this._down) return;
+      const moved = Math.abs(this.pointer.x-this._down.x)+Math.abs(this.pointer.y-this._down.y);
+      this._down = null;
+      if(moved > .012) return;
+      if(this.hoverId) this.setState({ selected:this.hoverId });
+    });
+
+    this._onResize = ()=>{
+      if(!this.mount.current) return;
+      const w = this.mount.current.clientWidth, h = this.mount.current.clientHeight;
+      camera.aspect = w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h);
+    };
+    window.addEventListener('resize', this._onResize);
+
+    if(document.fonts && document.fonts.ready){
+      document.fonts.ready.then(()=>{ this.groups.forEach(g=>{
+        const a = g.userData.agent;
+        g.userData.label.material.map = this.labelTexture(a.name, a.color, a.disabled?'FASE 2 · OFF':null);
+        g.userData.label.material.needsUpdate = true;
+      }); });
+    }
+
+    this.clock = new THREE.Clock();
+    this.setState({ ready:true, active:{ houdini:true, gmail:true, recep:true } });
+    this.loop();
+  }
+
+  loop(){
+    if(this._dead) return;
+    this._raf = requestAnimationFrame(()=>this.loop());
+    const t = this.clock.getElapsedTime();
+
+    // hover pick
+    this.ray.setFromCamera(this.pointer, this.camera);
+    const hits = this.ray.intersectObjects(this.pickables, false);
+    const id = hits.length ? hits[0].object.userData.agentId : null;
+    if(id !== this.hoverId){ this.hoverId = id; this.renderer.domElement.style.cursor = id ? 'pointer' : 'grab'; }
+
+    const active = this.state.active;
+    this.groups.forEach(g=>{
+      const u = g.userData, a = u.agent;
+      const on = !!active[a.id] && !a.disabled;
+      const hov = this.hoverId === a.id;
+      u.cur += ((on?1:0) - u.cur) * 0.06;
+      u.hover += ((hov?1:0) - u.hover) * 0.12;
+      const k = u.cur, s = a.scale||1;
+      g.position.y = u.base + Math.sin(t*(1+k*1.4) + u.phase) * (0.05 + k*0.16) * s;
+      g.rotation.y += 0.0022 + k*0.007;
+      const sc = 1 + u.hover*0.06 + k*0.02;
+      g.scale.setScalar(sc);
+      u.ring.rotation.z += 0.004 + k*0.02;
+      u.ring2.rotation.z -= 0.006 + k*0.03;
+      const pulse = 0.5 + 0.5*Math.sin(t*2.4 + u.phase);
+      const gl = u.glow ?? 1;
+      if(!a.disabled){
+        u.ring.material.opacity = Math.min(1, (0.35 + k*(0.35+0.35*pulse) + u.hover*0.2) * gl);
+        u.ring2.material.opacity = Math.min(1, (0.16 + k*0.3*pulse) * gl);
+        u.light.intensity = (0.35 + k*(1.6+1.2*pulse) + u.hover*0.5) * gl;
+        u.parts.material.opacity = Math.min(1, (0.25 + k*0.55 + u.hover*0.15) * gl);
+        u.meshes.forEach(m=>{ m.material.emissiveIntensity = (0.6 + k*(1.4+0.9*pulse) + u.hover*0.5) * gl; });
+        u.icon.material.opacity = Math.min(1, (0.55 + k*0.4 + u.hover*0.25) * gl);
+      }
+      u.icon.position.set(Math.cos(t*0.6+u.phase)*1.05*s, 1.9*s + Math.sin(t*1.2)*0.09, Math.sin(t*0.6+u.phase)*1.05*s);
+      u.parts.rotation.y += 0.002 + k*0.012;
+      const pa = u.parts.geometry.attributes.position;
+      for(let i=0;i<u.seeds.length;i++){
+        const sd = u.seeds[i];
+        const h = (sd.h + t*sd.sp*(0.3+k)) % (2.5*s);
+        pa.array[i*3+1] = h;
+        const rr = sd.r * (1 + Math.sin(t*sd.sp + i)*0.06);
+        pa.array[i*3] = Math.cos(sd.ang + t*(0.2+k*0.5))*rr;
+        pa.array[i*3+2] = Math.sin(sd.ang + t*(0.2+k*0.5))*rr;
+      }
+      pa.needsUpdate = true;
+    });
+
+    const rp = this.rain.geometry.attributes.position;
+    for(let i=0;i<this.rainSpeeds.length;i++){
+      rp.array[i*3+1] -= this.rainSpeeds[i];
+      if(rp.array[i*3+1] < -1){ rp.array[i*3+1] = 40; }
+    }
+    rp.needsUpdate = true;
+    if(this._panels) this._panels.forEach((p,i)=>{ p.material.opacity = 0.3 + 0.16*Math.sin(t*(0.7+i*0.2)); });
+
+    if(this._focus){
+      this.controls.target.lerp(this._focus.target, 0.06);
+      this.camera.position.lerp(this._focus.pos, 0.06);
+      if(this.camera.position.distanceTo(this._focus.pos) < 0.4) this._focus = null;
+    }
+    const glow = this.props.glow ?? 1;
+    if(this._glowApplied !== glow){
+      this._glowApplied = glow;
+      this.groups.forEach(g=>{ g.userData.glow = glow; });
+    }
+    this.rain.visible = this.props.showMatrix !== false;
+    this.controls.autoRotate = !!this.props.autoOrbit;
+    this.controls.autoRotateSpeed = 0.5;
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  focus(target, pos){ this._focus = { target:new THREE.Vector3(...target), pos:new THREE.Vector3(...pos) }; }
+
+  renderVals(){
+    const st = this.state, active = st.active;
+    const stateOf = a => a.disabled ? 'DESHABILITADO' : (active[a.id] ? 'ACTIVO' : 'EN ESPERA');
+    const colorOf = a => a.disabled ? '#7A8090' : (active[a.id] ? '#2ECC71' : '#8A93B5');
+    const mk = a => ({
+      name:a.name, color:a.color, stateShort: a.disabled?'OFF':(active[a.id]?'ON':'IDLE'),
+      stateColor: colorOf(a),
+      rowBg: st.selected===a.id ? 'rgba(108,59,210,.3)' : 'rgba(255,255,255,.03)',
+      dotGlow: (active[a.id] && !a.disabled) ? '0 0 10px 2px '+a.color : 'none',
+      select: () => {
+        this.setState({ selected:a.id });
+        if(a.zone==='recep') this.focus([24,-0.1,9.6],[24,7,22]);
+        else this.focus([a.pos[0]*0.4,1.4,a.pos[2]*0.4],[a.pos[0]*1.5+4, 8, a.pos[2]*1.5+14]);
+      }
+    });
+    const sel = this.agents.find(a=>a.id===st.selected) || null;
+    const toggle = (val) => {
+      const next = {};
+      this.agents.forEach(a=>{ if(!a.disabled) next[a.id] = val; });
+      this.setState({ active: next });
+    };
+    return {
+      mount: this.mount,
+      activeCount: this.agents.filter(a=>active[a.id] && !a.disabled).length,
+      totalCount: this.agents.filter(a=>!a.disabled).length,
+      sections: [
+        { label:'PROYECTO HOUDINI', items:this.agents.filter(a=>a.zone==='main').map(mk) },
+        { label:'RECEPCIONISTA WHATSAPP', items:this.agents.filter(a=>a.zone==='recep').map(mk) }
+      ],
+      hasSelection: !!sel,
+      selName: sel?sel.name:'', selRole: sel?sel.role:'', selDesc: sel?sel.desc:'',
+      selTools: sel?sel.tools:[], selColor: sel?sel.color:'#6C3BD2',
+      selState: sel?stateOf(sel):'', selStateColor: sel?colorOf(sel):'#8A93B5',
+      selBtnOpacity: sel && sel.disabled ? 0.35 : 1,
+      selToggleLabel: !sel ? '' : (sel.disabled ? 'NO DISPONIBLE EN FASE 1' : (active[sel.id] ? 'DESACTIVAR AGENTE' : 'ACTIVAR AGENTE')),
+      toggleSelected: () => {
+        if(!sel || sel.disabled) return;
+        this.setState(s=>({ active: Object.assign({}, s.active, { [sel.id]: !s.active[sel.id] }) }));
+      },
+      clearSelection: () => this.setState({ selected:null }),
+      activateAll: () => toggle(true),
+      deactivateAll: () => toggle(false),
+      viewMain: () => this.focus([0,1.4,0],[10,11,18]),
+      viewReception: () => this.focus([24,-0.1,9.6],[24,7,23]),
+      viewWide: () => this.focus([9,1,4],[-4,20,38])
+    };
+  }
+}
+</script>
+</body>
+</html>

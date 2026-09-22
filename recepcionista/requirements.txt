@@ -1,0 +1,6 @@
+# Recepcionista CJ MEDICAL
+python-telegram-bot>=20.0
+python-dotenv>=1.0
+httpx>=0.25
+openai>=1.0
+anthropic>=0.40

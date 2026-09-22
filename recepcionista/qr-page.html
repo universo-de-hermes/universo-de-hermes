@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>QR WhatsApp - CJ Medical</title>
+<meta http-equiv="refresh" content="4">
+<style>
+body{margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f4f7f5;font-family:'Segoe UI',sans-serif;}
+.card{text-align:center;padding:40px;background:white;border-radius:24px;box-shadow:0 20px 60px rgba(0,0,0,0.1);max-width:500px;width:90%;}
+.qr{border:12px solid white;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:400px;width:100%;}
+.instructions{color:#0f1a14;font-size:15px;line-height:1.6;margin-top:20px;}
+.step{display:flex;align-items:center;gap:8px;justify-content:center;margin:4px 0;font-size:14px;color:#5b6b62;}
+h1{font-size:22px;color:#0f1a14;margin-bottom:8px;}
+.ready{color:#1f8a5b;font-size:18px;font-weight:600;padding:20px;background:#e8f5e9;border-radius:16px;}
+.time{color:#8a8d91;font-size:13px;margin-top:12px;}
+</style></head><body>
+<div class="card" id="main">
+<h1>📱 Conectar WhatsApp CJ Medical</h1>
+<div id="qrContainer">
+<img class="qr" src="/wa_qr.png?t={{timestamp}}" alt="QR WhatsApp" id="qrImg">
+</div>
+<div id="readyMsg" style="display:none;" class="ready">✅ ¡WhatsApp conectado!</div>
+<div class="instructions">
+<div class="step">1️⃣ Abre WhatsApp en el celular <strong>Tigo</strong></div>
+<div class="step">2️⃣ Menú ⋮ → Dispositivos vinculados</div>
+<div class="step">3️⃣ <strong>Escanea este código QR</strong></div>
+</div>
+<p class="time">🔄 El QR se actualiza cada 4 segundos</p>
+</div>
+<script>
+// Refrescar imagen cada 4s sin recargar toda la pagina
+setInterval(function(){
+    var img = document.getElementById('qrImg');
+    if(img) img.src = '/wa_qr.png?t=' + new Date().getTime();
+}, 4000);
+
+// Verificar si ya se conecto
+setInterval(function(){
+    fetch('/wa_qr_check')
+    .then(r => r.json())
+    .then(d => {
+        if(d.status === 'connected') {
+            document.getElementById('qrContainer').style.display = 'none';
+            document.getElementById('readyMsg').style.display = 'block';
+            document.querySelector('.time').textContent = '✅ Escaneado - Ya puedes cerrar esta pagina';
+        }
+    })
+    .catch(() => {});
+}, 3000);
+</script>
+</body></html>

@@ -1,0 +1,55 @@
+{
+  "name": "HOUDINI",
+  "nameEn": "HOUDINI",
+  "title": "HOUDINI.SYSTEM",
+  "status": "ONLINE",
+  "model": "DEEPSEEK / DEEPSEEK-V4-FLASH",
+  "provider": "OPENROUTER",
+  "contextSize": 128000,
+  "colors": {
+    "primary": "#00d4ff",
+    "secondary": "#0088cc",
+    "tertiary": "#80d4ff",
+    "success": "#00ff90",
+    "warning": "#ffa030",
+    "danger": "#ff3040"
+  },
+  "skills": [
+    { "icon": "🎤", "name": "VOZ", "status": "on" },
+    { "icon": "📧", "name": "GMAIL", "status": "on" },
+    { "icon": "📅", "name": "CALENDARIO", "status": "on" },
+    { "icon": "🧠", "name": "MEMORIA", "status": "on" },
+    { "icon": "🌤️", "name": "CLIMA", "status": "on" },
+    { "icon": "🔐", "name": "SEGURIDAD", "status": "off" }
+  ],
+  "tasks": [
+    { "text": "Interfaz holográfica", "status": "done" },
+    { "text": "Panel de monitoreo", "status": "done" },
+    { "text": "Estado del modelo", "status": "done" },
+    { "text": "Animación de fondo 3D", "status": "done" },
+    { "text": "Sistema de pestañas", "status": "done" },
+    { "text": "Chat con Houdini", "status": "active" },
+    { "text": "Sistema de voz TTS", "status": "pending" },
+    { "text": "Control por comandos", "status": "pending" },
+    { "text": "Integración completa", "status": "pending" }
+  ],
+  "schedule": [
+    { "time": "*/30 *", "name": "LATIDO", "status": "on" },
+    { "time": "09:00", "name": "SALUDO MATUTINO", "status": "on" },
+    { "time": "12:00", "name": "REVISAR CORREO", "status": "on" },
+    { "time": "18:00", "name": "CLIMA DEL DÍA", "status": "off" }
+  ],
+  "memories": [
+    "📋 HOUDINI UI - Sistema de pestañas",
+    "🎨 Animación de fondo 3D holográfico",
+    "📊 Panel de estado del modelo",
+    "💻 Monitor del sistema en línea",
+    "💬 Chat conectado con Houdini IA"
+  ],
+  "demoTracks": [
+    { "label": "MERKABA", "url": "./assets/audio/Merkaba.mp3" },
+    { "label": "DHAMIKA", "url": "./assets/audio/Dhamika.mp3" },
+    { "label": "VACANT", "url": "./assets/audio/Vacant.mp3" },
+    { "label": "LXSTNGHT", "url": "./assets/audio/lxstnght-back_1.mp3" }
+  ]
+}

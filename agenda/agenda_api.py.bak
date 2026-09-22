@@ -1,0 +1,279 @@
+"""
+Agenda CJ Medical — API REST para Pepe (y para el frontend)
+Conecta contra PostgreSQL con las funciones de agendamiento.
+"""
+import os, json, re
+from datetime import date, time, datetime
+from typing import Optional
+
+import psycopg2
+import psycopg2.extras
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI(title="Agenda CJ Medical", version="1.0.0")
+
+# ── Conexión a Postgres ──
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@localhost:5432/cjmedical")
+
+def get_conn():
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = True
+    return conn
+
+# ═══════════════════════════════════════════════
+# MODELOS
+# ═══════════════════════════════════════════════
+
+class ClienteCrear(BaseModel):
+    documento: str
+    primer_nombre: str
+    primer_apellido: str
+    telefono: str
+    correo: Optional[str] = None
+    sede: str
+
+class BuscarCliente(BaseModel):
+    telefono: str
+
+class HuecosRequest(BaseModel):
+    fecha: date
+    sede: str
+    especialista: Optional[str] = None
+    servicio: str
+    duracion: Optional[int] = None
+    paso: int = 15
+
+class BuscarHuecosReq(BaseModel):
+    desde: Optional[date] = None
+    dias: int = 14
+    sede: str
+    servicio: str
+    limite: int = 40
+
+class ApartarCupoReq(BaseModel):
+    especialista: str
+    sede: str
+    fecha: date
+    inicio: str  # HH:MM
+    servicio: str
+    minutos: int = 5
+    referencia: str
+
+class AgendarReq(BaseModel):
+    cliente_id: str
+    especialista: str
+    sede: str
+    fecha: date
+    inicio: str  # HH:MM
+    servicio: str
+    canal: str = "WhatsApp"
+    por: str = "pepe"
+    notas: Optional[str] = None
+    reserva: Optional[str] = None
+
+class CambiarEstadoReq(BaseModel):
+    cita_id: str
+    estado: str
+    por: str = "pepe"
+    motivo: Optional[str] = None
+
+class ReprogramarReq(BaseModel):
+    cita_id: str
+    fecha: date
+    inicio: str
+    especialista: Optional[str] = None
+    sede: Optional[str] = None
+    motivo: str
+    por: str = "pepe"
+    reserva: Optional[str] = None
+
+# ═══════════════════════════════════════════════
+# ENDPOINTS
+# ═══════════════════════════════════════════════
+
+@app.get("/")
+def root():
+    return {"agenda": "CJ Medical", "version": "1.0.0"}
+
+# ── 1. Consultar sedes, servicios, especialistas ──
+@app.get("/sedes")
+def sedes():
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM sedes WHERE activo ORDER BY nombre")
+    return cur.fetchall()
+
+@app.get("/servicios")
+def servicios():
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM servicios WHERE activo ORDER BY nombre")
+    return cur.fetchall()
+
+@app.get("/especialistas")
+def especialistas():
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM v_especialistas WHERE activo ORDER BY nombre_corto")
+    return cur.fetchall()
+
+# ── 2. Buscar cliente ──
+@app.post("/clientes/buscar")
+def buscar_cliente(req: BuscarCliente):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM buscar_cliente(%s)", (req.telefono,))
+    return cur.fetchall()
+
+# ── 3. Crear cliente ──
+@app.post("/clientes/crear")
+def crear_cliente(req: ClienteCrear):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM crear_cliente(%s,%s,%s,%s,%s,%s)",
+                (req.documento, req.primer_nombre, req.primer_apellido,
+                 req.telefono, req.correo, req.sede))
+    return cur.fetchone()
+
+# ── 4. Disponibilidad ──
+@app.post("/huecos/dia")
+def huecos_dia(req: HuecosRequest):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM huecos_del_dia(p_fecha=>%s,p_sede=>%s,p_servicio=>%s,p_paso=>%s,p_especialista=>%s,p_duracion=>%s)",
+                (req.fecha, req.sede, req.servicio, req.paso, req.especialista, req.duracion))
+    return cur.fetchall()
+
+@app.post("/huecos/buscar")
+def huecos_buscar(req: BuscarHuecosReq):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM buscar_huecos(p_desde=>%s,p_dias=>%s,p_sede=>%s,p_servicio=>%s,p_limite=>%s,p_especialista=>NULL,p_duracion=>NULL,p_paso=>15)",
+                (req.desde or date.today(), req.dias, req.sede, req.servicio, req.limite))
+    return cur.fetchall()
+
+# ── 5. Apartar cupo ──
+@app.post("/cupos/apartar")
+def apartar(req: ApartarCupoReq):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM apartar_cupo(p_especialista=>%s,p_sede=>%s,p_fecha=>%s,p_inicio=>%s,p_servicio=>%s,p_minutos=>%s,p_referencia=>%s)",
+                (req.especialista, req.sede, req.fecha, req.inicio,
+                 req.servicio, req.minutos, req.referencia))
+    return cur.fetchone()
+
+@app.post("/cupos/soltar/{reserva_id}")
+def soltar(reserva_id: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT soltar_cupo(%s)", (reserva_id,))
+    return {"ok": True, "mensaje": "Cupo liberado"}
+
+# ── 6. Agendar ──
+@app.post("/citas/agendar")
+def agendar(req: AgendarReq):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM agendar_cita(p_cliente=>%s,p_especialista=>%s,p_sede=>%s,p_fecha=>%s,p_inicio=>%s,p_servicio=>%s,p_canal=>%s,p_por=>%s,p_notas=>%s,p_reserva=>%s)",
+                (req.cliente_id, req.especialista, req.sede, req.fecha,
+                 req.inicio, req.servicio, req.canal,
+                 req.por, req.notas, req.reserva))
+    return cur.fetchone()
+
+# ── 7. Cambiar estado ──
+@app.post("/citas/estado")
+def cambiar_estado(req: CambiarEstadoReq):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT cambiar_estado(%s,%s,%s,%s)",
+                (req.cita_id, req.estado, req.por, req.motivo))
+    return {"ok": True, "mensaje": "Estado actualizado"}
+
+# ── 8. Reprogramar ──
+@app.post("/citas/reprogramar")
+def reprogramar(req: ReprogramarReq):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM reprogramar_cita(p_cita=>%s,p_fecha=>%s,p_inicio=>%s,p_especialista=>%s,p_sede=>%s,p_motivo=>%s,p_por=>%s,p_reserva=>%s)",
+                (req.cita_id, req.fecha, req.inicio, req.especialista,
+                 req.sede, req.motivo, req.por, req.reserva))
+    return cur.fetchone()
+
+# ── 9. Consultar agenda ──
+@app.get("/agenda/{sede_id}/{fecha}")
+def agenda_dia(sede_id: str, fecha: date):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM v_agenda WHERE fecha=%s AND sede_id=%s ORDER BY inicio",
+                (fecha, sede_id))
+    return cur.fetchall()
+
+@app.get("/agenda/cliente/{cliente_id}")
+def agenda_cliente(cliente_id: str):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM v_agenda WHERE cliente_id=%s AND fecha >= CURRENT_DATE ORDER BY fecha, inicio",
+                (cliente_id,))
+    return cur.fetchall()
+
+# ── Health ──
+
+
+@app.get(/api/v2/agenda/{sede_id}/{fecha})
+def agenda_v2(sede_id: str, fecha: date):
+@app.get(/api/v2/datos)
+def datos_completos():
+    """Devuelve sedes, servicios, especialistas, estados para la agenda."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    cur.execute("SELECT id, nombre, ciudad, hora_inicio, hora_fin FROM sedes WHERE activo")
+    sedes = {}
+    for r in cur.fetchall():
+        sedes[r['id']] = {
+            'id': r['id'], 'nombre': r['nombre'], 'ciudad': r.get('ciudad',''),
+            'horaInicio': str(r['hora_inicio'])[:5], 'horaFin': str(r['hora_fin'])[:5],
+        }
+    
+    cur.execute("SELECT s.*, es.nombre_corto FROM servicios s LEFT JOIN v_especialistas es ON es.id = s.id WHERE s.activo")
+    servicios = {}
+    for r in cur.fetchall():
+        servicios[r['id']] = {
+            'id': r['id'], 'nombre': r['nombre'], 'duracion': r['duracion'], 'precio': 0
+        }
+    
+    cur.execute("SELECT * FROM estados WHERE activo")
+    estados = {}
+    for r in cur.fetchall():
+        estados[r['id']] = {
+            'id': r['id'], 'nombre': r['nombre'], 'color': r.get('color','#888'),
+            'tipo': r['tipo'], 'inicial': r.get('inicial',False)
+        }
+    
+    cur.execute("SELECT e.*, string_agg(DISTINCT eh.sede_id, ',') as sedes_ids FROM especialistas e LEFT JOIN especialista_horarios eh ON eh.especialista_id = e.id WHERE e.activo GROUP BY e.id")
+    especialistas = {}
+    for r in cur.fetchall():
+        esp = {
+            'id': r['id'], 'nombres': r.get('nombres',''), 'apellidos': r.get('apellidos',''),
+            'color': r.get('color','#7A9E7E'), 'activo': True,
+            'sedes': r.get('sedes_ids','').split(',') if r.get('sedes_ids') else []
+        }
+        especialistas[r['id']] = esp
+    
+    return {
+        'sedes': sedes,
+        'servicios': servicios,
+        'estados': estados,
+        'especialistas': especialistas
+    }
+
+@app.get("/health")
+def health():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        return {"status": "ok", "db": "conectada"}
+    except Exception as e:
+        return {"status": "error", "db": str(e)}

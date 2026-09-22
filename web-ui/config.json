@@ -1,0 +1,24 @@
+{
+  "name": "HOUDINI",
+  "agent": {
+    "name": "HOUDINI",
+    "emoji": "\ud83e\udd16",
+    "sessionKey": "agent:main:main",
+    "skills": []
+  },
+  "server": {
+    "port": 9999,
+    "gatewayUrl": "ws://127.0.0.1:18789"
+  },
+  "tts": {
+    "voice": "Gonzalo",
+    "maxChars": 800,
+    "engine": "edge",
+    "edgeVoice": "es-CO-GonzaloNeural",
+    "edgeVoiceAlt": "es-CO-SalomeNeural"
+  },
+  "theme": {
+    "accentPrimary": "#00d4ff",
+    "accentSecondary": "#d4a847"
+  }
+}
