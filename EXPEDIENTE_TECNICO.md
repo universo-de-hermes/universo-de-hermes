@@ -90,7 +90,7 @@
 | **Lenguaje** | Python 3.12.3 |
 | **Framework** | python-telegram-bot 22.x, FastAPI, OpenAI |
 | **Servicio** | `pepe.service` (systemd) |
-| **Modelo** | Claude Haiku (Anthropic) |
+| **Modelo** | DeepSeek V4 Pro (OpenRouter) |
 | **Telegram** | @CjmedicalBot |
 | **CRM** | FastAPI en `crm/server.py` (puerto 8000) |
 | **WhatsApp** | Twilio API (pendiente conexión) |
