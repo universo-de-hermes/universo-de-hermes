@@ -45,6 +45,10 @@ from fastapi import (APIRouter, Depends, FastAPI, HTTPException, Query,
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+# Panel Clientes CJ: la pantalla de autoservicio de recepcion. Va en su propio
+# archivo y cuelga de un router sin sesion, porque es una tablet publica.
+from autoservicio import router as autoservicio_router
+
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://postgres@127.0.0.1:5432/cjmedical")
 
@@ -390,14 +394,14 @@ class BuscarCliente(BaseModel):
 class HuecosRequest(BaseModel):
     fecha: date; sede: Optional[str] = None
     especialista: Optional[str] = None; servicio: Optional[str] = None
-    duracion: Optional[int] = None; paso: int = 15
+    duracion: Optional[int] = None; paso: int = 30
 
 
 class BuscarHuecosReq(BaseModel):
     desde: Optional[date] = None; dias: int = 14
     sede: Optional[str] = None; especialista: Optional[str] = None
     servicio: Optional[str] = None; duracion: Optional[int] = None
-    paso: int = 15; limite: int = 40
+    paso: int = 30; limite: int = 40
 
 
 class ApartarCupoReq(BaseModel):
@@ -856,6 +860,38 @@ def clientes_crear(req: ClienteCrear):
                 req.telefono, req.correo or "", req.sede))
 
 
+# ──────────────────────────────────────────── cupos apartados (tablet) ────
+@r.get("/reservas")
+def reservas_del_dia(fecha: str, sede: Optional[str] = Query(None),
+                     _=Depends(sesion)):
+    """Cupos que alguien esta apartando AHORA desde la tablet.
+
+    Solo los vivos: la misma condicion que usa huecos_del_dia para
+    descontarlos (expira_en > now()). Si se devolvieran los vencidos, la
+    recepcionista veria ocupado algo que ya esta libre.
+
+    quedan_minutos lo calcula Postgres a proposito: expira_en es un timestamp
+    SIN zona, y si la resta la hace el navegador la lee como hora local y, con
+    el servidor en UTC y la tablet en Colombia, da cinco horas de mas.
+    """
+    return todos("""
+        select r.id,
+               r.especialista_id,
+               r.sede_id,
+               r.fecha,
+               to_char(r.inicio,'HH24:MI') as inicio,
+               to_char(r.fin,'HH24:MI')    as fin,
+               r.canal,
+               ceil(extract(epoch from (r.expira_en - now())) / 60)::int
+                 as quedan_minutos
+          from reservas r
+         where r.fecha = %s
+           and r.expira_en > now()
+           and (%s is null or r.sede_id = %s)
+         order by r.inicio, r.especialista_id
+    """, (fecha, sede, sede))
+
+
 @r.get("/clientes")
 def clientes_list(buscar: Optional[str] = Query(None), limite: int = 100):
     if buscar:
@@ -1030,6 +1066,32 @@ def apartar(req: ApartarCupoReq):
                (req.especialista, req.sede, req.fecha, req.inicio,
                 req.servicio, req.minutos, req.referencia),
                "No se pudo apartar")
+
+
+@r.get("/cupos/vigente")
+def cupos_vigente(referencia: str, fecha: str = None, inicio: str = None):
+    """La reserva VIVA de este cliente para ese día.
+
+    Existe porque quien agenda no siempre manda el id de la reserva que acaba
+    de apartar (un modelo no recuerda los resultados de sus herramientas
+    entre mensajes). Sin esto, `agendar_cita` ve esa misma reserva como si
+    fuera de otra conversación y responde CUPO_APARTADO: la cita nunca se
+    crea. Se busca por `referencia`, que es un dato que sí se tiene.
+    """
+    filas = todos("""select id, to_char(inicio, 'HH24:MI') as inicio,
+                            to_char(fecha, 'YYYY-MM-DD') as fecha
+                       from reservas
+                      where referencia = %s and expira_en > now()
+                        and (%s is null or fecha = %s::date)
+                      order by expira_en desc""",
+                  (referencia, fecha, fecha))
+    if not filas:
+        return {}
+    if inicio:
+        for f in filas:
+            if str(f.get("inicio"))[:5] == str(inicio)[:5]:
+                return f
+    return filas[0]
 
 
 @r.delete("/cupos/{reserva}")
@@ -1299,6 +1361,8 @@ def bloqueos_list(desde: Optional[date] = Query(None),
 for _pre in ("", "/v2", "/api", "/api/v2"):
     _esquema = (_pre == "")
     app.include_router(rp, prefix=_pre, include_in_schema=_esquema)
+    app.include_router(autoservicio_router, prefix=_pre,
+                       include_in_schema=_esquema)
     app.include_router(r,  prefix=_pre, dependencies=[Depends(sesion)],
                        include_in_schema=_esquema)
     app.include_router(ra, prefix=_pre, dependencies=[Depends(admin)],

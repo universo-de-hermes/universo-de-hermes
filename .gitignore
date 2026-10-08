@@ -31,3 +31,20 @@ server.log
 google_token.json
 google_token.json.bak
 
+*.bak
+_respaldos/
+*.db
+*.png
+venv/
+__pycache__/
+*.pyc
+node_modules/
+.api_env
+.api_token
+.env
+wa_*
+webhook.log
+server.log
+_paquete/
+_paquete2/tools/node_modules/
+autoservicio.db

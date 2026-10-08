@@ -1,0 +1,71 @@
+══════════════════════════════════════════════════════════════════════
+  FOTO DE LA AGENDA — 2026-10-01T19:37:01
+══════════════════════════════════════════════════════════════════════
+
+  Esto es lo que se llevaría el archivo .json. NO incluye ningún dato
+  de clientas: ni nombres, ni cédulas, ni teléfonos, ni correos, ni el
+  contenido de ninguna cita. Solo configuración y conteos.
+
+─ EL MOTOR ──────────────────────────────────────────────────────────
+   version                PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu
+   zona_de_la_base        Etc/UTC
+   ahora_sin_zona         2026-10-01 19:37:01.720293
+   hoy_en_colombia        2026-10-01
+
+─ LA FUNCIÓN QUE REPARTE EL DÍA ──────────────────────────────────────
+   existe                              True
+   paso por defecto                    15 min
+   filtra por quién realiza el servicio True
+   tiene el arreglo de hora Colombia   NO  ← ojo
+      Sin ese arreglo, la agenda esconde cupos por la mañana y
+      ofrece horas ya pasadas por la noche.
+
+─ SERVICIOS ──────────────────────────────────────────────────────────
+   14 activos de 16
+   duraciones: 20 min ×1, 30 min ×7, 60 min ×6
+   ✓ ningún nombre repetido
+   ⚠ el maestro no coincide con lo que duran las citas:
+        Terapias de Revitalización               maestro 30 · de verdad 45 (4 de 4)
+
+─ QUIÉN HACE QUÉ ─────────────────────────────────────────────────────
+   4 con servicios marcados · 0 sin marcar nada
+      Diana Carolina Ruiz Rojas            8 servicios
+      JORGE RAMIRO CUETER GUZMAN           6 servicios
+      JULIE VIVIANA ARIAS HERNANDEZ        6 servicios
+      VALENTINA BAQUERO RIVILLAS           11 servicios
+
+─ SEDES Y HORARIOS ───────────────────────────────────────────────────
+   CJ MEDICAL - BOGOTA              (sin dirección cargada)
+   CJ MEDICAL EL TESORO             (sin dirección cargada)
+   CJ MEDICAL - BOGOTA              4 con horario, 19 franjas, 09:00:00–19:00:00
+   CJ MEDICAL EL TESORO             4 con horario, 24 franjas, 09:00:00–19:00:00
+
+─ CITAS (solo conteos) ───────────────────────────────────────────────
+   Agente IA                     6   2026-09-21 → 2026-09-30
+   Administrador                 6   2026-09-21 → 2026-09-22
+   Autoservicio                  4   2026-09-30 → 2026-10-01
+
+   Confirmado                    7
+   Pendiente                     4
+   Reprogramado                  3
+   Cancelado                     1
+   Llegó                         1
+
+─ VARIABLES DEL PANEL ────────────────────────────────────────────────
+   AUTOSERVICIO_CLAVE             sin poner
+   AUTOSERVICIO_ABIERTO           sin poner
+   AUTOSERVICIO_DIAS              sin poner
+   AUTOSERVICIO_PASO              sin poner
+   AUTOSERVICIO_MINUTOS           sin poner
+   AUTOSERVICIO_TOPE              sin poner
+   AUTOSERVICIO_TOPE_CLIENTE      sin poner
+   AUTOSERVICIO_DATOS_COMPLETOS   sin poner
+   AUTOSERVICIO_BD                sin poner
+   API_TOKEN                      sin poner
+   DATABASE_URL                   (puesta, no se copia su valor)
+   ORIGENES                       sin poner
+   TZ                             sin poner
+
+══════════════════════════════════════════════════════════════════════
+  Si algo de esto no le gusta, no mande el archivo.
+══════════════════════════════════════════════════════════════════════

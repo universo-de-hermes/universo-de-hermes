@@ -1,23 +1,23 @@
 {
   "houdini": {
     "name": "HOUDINI",
-    "doing": "test",
-    "task": "test",
+    "doing": "Caminando hacia drive",
+    "task": "Si revisa por fa me estás mandando msj del vps?",
     "status": "active",
     "color": "#6C3BD2",
     "team": "GERENCIA",
-    "walk_x": 0.0,
-    "walk_z": -7.800000000000001,
-    "updated_at": "2026-09-22T02:49:51"
+    "walk_x": 9.4,
+    "walk_z": -2.2,
+    "updated_at": "2026-10-08T01:31:58.490609"
   },
   "gmail": {
     "name": "GMAIL AGENT",
-    "doing": "Asignado por jefe: Enviame un correo",
-    "task": "Enviame un correo",
+    "doing": "Ejecutando search_emails",
+    "task": "{'query': 'VPS', 'max_results': 5}",
     "status": "active",
     "color": "#4285F4",
     "team": "COMUNICACIÓN",
-    "updated_at": "2026-09-12T00:48:42",
+    "updated_at": "2026-10-08T01:31:58.488584",
     "walk_x": -12.485653288816824,
     "walk_z": -5.190940930728932
   },
@@ -67,23 +67,23 @@
   },
   "drive": {
     "name": "DRIVE AGENT",
-    "doing": "Asignado por jefe: el archivo de las membresías cómo vamos",
-    "task": "el archivo de las membresías cómo vamos",
-    "status": "idle",
+    "doing": "Ejecutando search_files",
+    "task": "{'query': 'VPS'}",
+    "status": "active",
     "color": "#FFD400",
     "team": "DATOS",
-    "updated_at": "2026-09-06T18:10:27",
+    "updated_at": "2026-10-08T01:31:58.490145",
     "walk_x": null,
     "walk_z": null
   },
   "calendar": {
     "name": "CALENDAR AGENT",
-    "doing": "Asignado por jefe: meta ads para publicitarios o shopify ? ",
-    "task": "meta ads para publicitarios o shopify ? redes sociales",
+    "doing": "Ejecutando list_events",
+    "task": "{'range_start': '2026-09-22T00:00:00', 'range_end': '2026-09-22T23:59:59'}",
     "status": "active",
     "color": "#2ECC71",
     "team": "DATOS",
-    "updated_at": "2026-09-12T00:58:03",
+    "updated_at": "2026-09-22T03:48:43.656816",
     "walk_x": 12.680861692093696,
     "walk_z": 0.11637384283555918
   },
@@ -116,7 +116,7 @@
     "status": "idle",
     "color": "#B8860B",
     "team": "LOBBY",
-    "updated_at": "2026-09-21T21:24:56.053781",
+    "updated_at": "2026-09-29T19:40:23.689944",
     "walk_x": null,
     "walk_z": null
   },
@@ -159,13 +159,13 @@
     "team": "?",
     "steps": [
       {
-        "agent": "houdini",
-        "home_x": 0.0,
-        "home_z": -7.800000000000001
+        "agent": "gmail",
+        "home_x": -12.485653288816824,
+        "home_z": -5.190940930728932
       }
     ],
     "active": true,
-    "updated_at": "2026-09-15T05:10:53",
+    "updated_at": "2026-09-22T03:49:21",
     "status": "idle",
     "walk_x": null,
     "walk_z": null

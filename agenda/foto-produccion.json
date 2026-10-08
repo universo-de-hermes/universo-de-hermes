@@ -1,0 +1,729 @@
+{
+ "tomada": "2026-10-01T19:37:01",
+ "aviso": "Sin datos de clientas. Solo configuración y conteos.",
+ "postgres": {
+  "version": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu",
+  "zona_de_la_base": "Etc/UTC",
+  "ahora_sin_zona": "2026-10-01 19:37:01.720293",
+  "hoy_en_colombia": "2026-10-01"
+ },
+ "tablas": {
+  "cita_bitacora": [
+   "id bigint NOT NULL",
+   "cita_id text NOT NULL",
+   "ts timestamp without time zone NOT NULL",
+   "por text",
+   "canal text",
+   "accion text NOT NULL",
+   "detalle jsonb NOT NULL"
+  ],
+  "citas": [
+   "id text NOT NULL",
+   "tipo text NOT NULL",
+   "fecha date NOT NULL",
+   "inicio time without time zone NOT NULL",
+   "fin time without time zone NOT NULL",
+   "especialista_id text NOT NULL",
+   "sede_id text NOT NULL",
+   "servicio_id text",
+   "cliente_id text",
+   "estado_id text",
+   "canal text",
+   "asignada_por text",
+   "notas text",
+   "motivo text",
+   "reprogramada_de text",
+   "reprogramada_a text",
+   "importado boolean NOT NULL",
+   "creado_en timestamp without time zone NOT NULL",
+   "creado_por text",
+   "ocupa_cupo boolean NOT NULL"
+  ],
+  "clientes": [
+   "id text NOT NULL",
+   "tipo_doc text",
+   "documento text NOT NULL",
+   "primer_nombre text",
+   "segundo_nombre text",
+   "primer_apellido text",
+   "segundo_apellido text",
+   "telefono text",
+   "correo text",
+   "dia_nac integer",
+   "mes_nac integer",
+   "genero text",
+   "ciudad text",
+   "sede_id text",
+   "tipo_cliente text",
+   "notas text",
+   "importado boolean NOT NULL",
+   "creado_en timestamp without time zone NOT NULL",
+   "creado_por text"
+  ],
+  "config": [
+   "clave text NOT NULL",
+   "valor jsonb NOT NULL"
+  ],
+  "especialista_sedes": [
+   "especialista_id text NOT NULL",
+   "sede_id text NOT NULL"
+  ],
+  "especialista_servicios": [
+   "especialista_id text NOT NULL",
+   "servicio_id text NOT NULL"
+  ],
+  "especialistas": [
+   "id text NOT NULL",
+   "nombres text NOT NULL",
+   "apellidos text NOT NULL",
+   "documento text",
+   "correo text",
+   "telefono text",
+   "especialidad text",
+   "color text",
+   "activo boolean NOT NULL"
+  ],
+  "estados": [
+   "id text NOT NULL",
+   "nombre text NOT NULL",
+   "color text NOT NULL",
+   "tipo text NOT NULL",
+   "transparente boolean NOT NULL",
+   "inicial boolean NOT NULL",
+   "orden integer NOT NULL",
+   "activo boolean NOT NULL"
+  ],
+  "horarios": [
+   "id bigint NOT NULL",
+   "especialista_id text NOT NULL",
+   "sede_id text NOT NULL",
+   "dia integer NOT NULL",
+   "desde time without time zone NOT NULL",
+   "hasta time without time zone NOT NULL",
+   "alm_desde time without time zone",
+   "alm_hasta time without time zone"
+  ],
+  "horarios_fecha": [
+   "id bigint NOT NULL",
+   "especialista_id text NOT NULL",
+   "sede_id text NOT NULL",
+   "fecha date NOT NULL",
+   "desde time without time zone NOT NULL",
+   "hasta time without time zone NOT NULL",
+   "alm_desde time without time zone",
+   "alm_hasta time without time zone",
+   "nota text NOT NULL",
+   "creado_en timestamp without time zone NOT NULL",
+   "creado_por text NOT NULL"
+  ],
+  "reservas": [
+   "id uuid NOT NULL",
+   "especialista_id text NOT NULL",
+   "sede_id text NOT NULL",
+   "fecha date NOT NULL",
+   "inicio time without time zone NOT NULL",
+   "fin time without time zone NOT NULL",
+   "canal text",
+   "referencia text",
+   "creado_en timestamp without time zone NOT NULL",
+   "expira_en timestamp without time zone NOT NULL"
+  ],
+  "sedes": [
+   "id text NOT NULL",
+   "nombre text NOT NULL",
+   "codigo text",
+   "ciudad text",
+   "bodega text",
+   "direccion text",
+   "telefono text",
+   "hora_inicio time without time zone NOT NULL",
+   "hora_fin time without time zone NOT NULL",
+   "puestos integer NOT NULL",
+   "capacidad_dia integer NOT NULL",
+   "dias_mes integer NOT NULL",
+   "activo boolean NOT NULL"
+  ],
+  "servicios": [
+   "id text NOT NULL",
+   "nombre text NOT NULL",
+   "codigo text",
+   "duracion integer NOT NULL",
+   "precio numeric",
+   "activo boolean NOT NULL"
+  ],
+  "sesiones": [
+   "token_hash text NOT NULL",
+   "usuario_id text NOT NULL",
+   "creado_en timestamp without time zone NOT NULL",
+   "visto_en timestamp without time zone NOT NULL",
+   "expira_en timestamp without time zone NOT NULL",
+   "agente text"
+  ],
+  "usuarios": [
+   "id text NOT NULL",
+   "nombre text NOT NULL",
+   "correo text",
+   "rol text NOT NULL",
+   "canal text NOT NULL",
+   "activo boolean NOT NULL",
+   "clave_hash text",
+   "sede_id text",
+   "nota text",
+   "creado_en timestamp without time zone NOT NULL",
+   "ultimo_acceso timestamp without time zone"
+  ],
+  "v_agenda": [
+   "id text",
+   "fecha date",
+   "inicio time without time zone",
+   "fin time without time zone",
+   "tipo text",
+   "canal text",
+   "notas text",
+   "motivo text",
+   "ocupa_cupo boolean",
+   "sede_id text",
+   "sede text",
+   "especialista_id text",
+   "especialista text",
+   "especialista_corto text",
+   "servicio_id text",
+   "servicio text",
+   "duracion integer",
+   "cliente_id text",
+   "cliente text",
+   "cliente_corto text",
+   "documento text",
+   "telefono text",
+   "estado_id text",
+   "estado text",
+   "estado_tipo text",
+   "color text",
+   "asignada_por text",
+   "creado_por text"
+  ],
+  "v_especialistas": [
+   "id text",
+   "nombre text",
+   "nombre_corto text",
+   "especialidad text",
+   "color text",
+   "activo boolean",
+   "sedes ARRAY",
+   "servicios ARRAY"
+  ],
+  "v_historial_cliente": [
+   "cliente_id text",
+   "cita_id text",
+   "fecha date",
+   "inicio time without time zone",
+   "sede text",
+   "especialista text",
+   "servicio text",
+   "estado text",
+   "estado_tipo text",
+   "color text",
+   "canal text"
+  ],
+  "v_solapes": [
+   "especialista_id text",
+   "fecha date",
+   "cita_a text",
+   "inicio_a time without time zone",
+   "fin_a time without time zone",
+   "estado_a text",
+   "cita_b text",
+   "inicio_b time without time zone",
+   "fin_b time without time zone",
+   "estado_b text"
+  ]
+ },
+ "conteos": {
+  "cita_bitacora": 55,
+  "citas": 16,
+  "clientes": 1,
+  "config": 1,
+  "especialista_sedes": 8,
+  "especialista_servicios": 43,
+  "especialistas": 7,
+  "estados": 7,
+  "horarios": 43,
+  "horarios_fecha": 9,
+  "reservas": 0,
+  "sedes": 2,
+  "servicios": 16,
+  "sesiones": 2,
+  "usuarios": 1,
+  "v_agenda": 16,
+  "v_especialistas": 7,
+  "v_historial_cliente": 16,
+  "v_solapes": 0
+ },
+ "funciones": [
+  "agendar_cita",
+  "apartar_cupo",
+  "cambiar_estado",
+  "crear_cliente",
+  "huecos_del_dia",
+  "reprogramar_cita"
+ ],
+ "huecos_del_dia": {
+  "existe": true,
+  "tiene_el_arreglo_de_hora_colombia": false,
+  "paso_por_defecto": "15",
+  "margen_por_defecto": "15",
+  "filtra_por_especialista_servicios": true
+ },
+ "servicios": [
+  {
+   "id": "srv-1-sesion-zona-l",
+   "nombre": "1 sesión zona L",
+   "duracion": 60,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-1-sesion-zona-m",
+   "nombre": "1 sesión zona M",
+   "duracion": 30,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-1-sesion-zona-s",
+   "nombre": "1 sesión zona S",
+   "duracion": 30,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-1-sesion-zona-xs",
+   "nombre": "1 sesión zona XS",
+   "duracion": 30,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-carbon-peel",
+   "nombre": "Carbon peel",
+   "duracion": 60,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-cita-de-control-medico",
+   "nombre": "Cita de control médico",
+   "duracion": 20,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-consulta-medica",
+   "nombre": "Consulta médica",
+   "duracion": 60,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-depilacion-nasal-con-cera",
+   "nombre": "Depilación nasal con cera",
+   "duracion": 30,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-diseno-de-cejas",
+   "nombre": "Diseño de Cejas",
+   "duracion": 30,
+   "activo": false,
+   "codigo": ""
+  },
+  {
+   "id": "srv-hidrafacial-plus",
+   "nombre": "Hidrafacial plus",
+   "duracion": 60,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-hidrofacial-basica",
+   "nombre": "Hidrofacial básica",
+   "duracion": 60,
+   "activo": false,
+   "codigo": ""
+  },
+  {
+   "id": "srv-masaje-de-relajacion",
+   "nombre": "Masaje de relajación",
+   "duracion": 60,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-radiofrecuencia-fraccionada-alta-intensidad",
+   "nombre": "Radiofrecuencia fraccionada alta intensidad",
+   "duracion": 60,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-remocion-micropigmentacion-1-sesion",
+   "nombre": "Remoción Micropigmentación 1 sesión",
+   "duracion": 30,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-terapias-de-revitalizacion",
+   "nombre": "Terapias de Revitalización",
+   "duracion": 30,
+   "activo": true,
+   "codigo": ""
+  },
+  {
+   "id": "srv-toxina-botox",
+   "nombre": "Toxina - Botox",
+   "duracion": 30,
+   "activo": true,
+   "codigo": ""
+  }
+ ],
+ "servicios_repetidos": [],
+ "duracion_maestro_vs_citas": [
+  {
+   "servicio": "1 sesión zona L",
+   "id": "srv-1-sesion-zona-l",
+   "maestro": 60,
+   "lo_que_mas_dura": 60,
+   "citas_asi": 3,
+   "total_citas": 3,
+   "reparto": {
+    "60": 3
+   },
+   "cuadra": true
+  },
+  {
+   "servicio": "1 sesión zona S",
+   "id": "srv-1-sesion-zona-s",
+   "maestro": 30,
+   "lo_que_mas_dura": 30,
+   "citas_asi": 1,
+   "total_citas": 1,
+   "reparto": {
+    "30": 1
+   },
+   "cuadra": true
+  },
+  {
+   "servicio": "Carbon peel",
+   "id": "srv-carbon-peel",
+   "maestro": 60,
+   "lo_que_mas_dura": 60,
+   "citas_asi": 1,
+   "total_citas": 1,
+   "reparto": {
+    "60": 1
+   },
+   "cuadra": true
+  },
+  {
+   "servicio": "Consulta médica",
+   "id": "srv-consulta-medica",
+   "maestro": 60,
+   "lo_que_mas_dura": 60,
+   "citas_asi": 2,
+   "total_citas": 2,
+   "reparto": {
+    "60": 2
+   },
+   "cuadra": true
+  },
+  {
+   "servicio": "Masaje de relajación",
+   "id": "srv-masaje-de-relajacion",
+   "maestro": 60,
+   "lo_que_mas_dura": 60,
+   "citas_asi": 2,
+   "total_citas": 2,
+   "reparto": {
+    "60": 2
+   },
+   "cuadra": true
+  },
+  {
+   "servicio": "Remoción Micropigmentación 1 sesión",
+   "id": "srv-remocion-micropigmentacion-1-sesion",
+   "maestro": 30,
+   "lo_que_mas_dura": 30,
+   "citas_asi": 2,
+   "total_citas": 2,
+   "reparto": {
+    "30": 2
+   },
+   "cuadra": true
+  },
+  {
+   "servicio": "Terapias de Revitalización",
+   "id": "srv-terapias-de-revitalizacion",
+   "maestro": 30,
+   "lo_que_mas_dura": 45,
+   "citas_asi": 4,
+   "total_citas": 4,
+   "reparto": {
+    "45": 4
+   },
+   "cuadra": false
+  },
+  {
+   "servicio": "Toxina - Botox",
+   "id": "srv-toxina-botox",
+   "maestro": 30,
+   "lo_que_mas_dura": 30,
+   "citas_asi": 1,
+   "total_citas": 1,
+   "reparto": {
+    "30": 1
+   },
+   "cuadra": true
+  }
+ ],
+ "quien_hace_que": [
+  {
+   "especialista": "Diana Carolina Ruiz Rojas",
+   "activa": true,
+   "servicios": [
+    "1 sesión zona L",
+    "1 sesión zona M",
+    "1 sesión zona S",
+    "1 sesión zona XS",
+    "Carbon peel",
+    "Diseño de Cejas",
+    "Hidrafacial plus",
+    "Hidrofacial básica"
+   ],
+   "sin_marcar_nada": false
+  },
+  {
+   "especialista": "JORGE RAMIRO CUETER GUZMAN",
+   "activa": true,
+   "servicios": [
+    "Cita de control médico",
+    "Consulta médica",
+    "Diseño de Cejas",
+    "Radiofrecuencia fraccionada alta intensidad",
+    "Remoción Micropigmentación 1 sesión",
+    "Toxina - Botox"
+   ],
+   "sin_marcar_nada": false
+  },
+  {
+   "especialista": "JULIE VIVIANA ARIAS HERNANDEZ",
+   "activa": true,
+   "servicios": [
+    "Cita de control médico",
+    "Consulta médica",
+    "Diseño de Cejas",
+    "Remoción Micropigmentación 1 sesión",
+    "Terapias de Revitalización",
+    "Toxina - Botox"
+   ],
+   "sin_marcar_nada": false
+  },
+  {
+   "especialista": "LAURA MARITHZA MARTINEZ MARTÍNEZ",
+   "activa": false,
+   "servicios": [],
+   "sin_marcar_nada": true
+  },
+  {
+   "especialista": "MANUELA BETANCUR AGUDELO",
+   "activa": false,
+   "servicios": [
+    "1 sesión zona L",
+    "1 sesión zona M",
+    "1 sesión zona S",
+    "1 sesión zona XS",
+    "Carbon peel",
+    "Cita de control médico",
+    "Consulta médica",
+    "Depilación nasal con cera",
+    "Masaje de relajación",
+    "Radiofrecuencia fraccionada alta intensidad",
+    "Remoción Micropigmentación 1 sesión",
+    "Terapias de Revitalización"
+   ],
+   "sin_marcar_nada": false
+  },
+  {
+   "especialista": "MARTHA ISABEL LOPEZ SUAREZ",
+   "activa": false,
+   "servicios": [],
+   "sin_marcar_nada": true
+  },
+  {
+   "especialista": "VALENTINA BAQUERO RIVILLAS",
+   "activa": true,
+   "servicios": [
+    "1 sesión zona L",
+    "1 sesión zona M",
+    "1 sesión zona S",
+    "1 sesión zona XS",
+    "Carbon peel",
+    "Depilación nasal con cera",
+    "Diseño de Cejas",
+    "Hidrafacial plus",
+    "Hidrofacial básica",
+    "Masaje de relajación",
+    "Terapias de Revitalización"
+   ],
+   "sin_marcar_nada": false
+  }
+ ],
+ "regla": "Una especialista sin ningún servicio marcado realiza TODOS. Si la tabla está vacía, la agenda dice que todas hacen todo.",
+ "sedes": [
+  {
+   "id": "sede-cj-medical-bogota",
+   "nombre": "CJ MEDICAL - BOGOTA",
+   "ciudad": "BOGOTÁ D.C. - BOGOTA D.C.",
+   "direccion": "",
+   "sin_direccion": true
+  },
+  {
+   "id": "sede-cj-medical-el-tesoro",
+   "nombre": "CJ MEDICAL EL TESORO",
+   "ciudad": "MEDELLIN - ANTIOQUIA",
+   "direccion": "",
+   "sin_direccion": true
+  }
+ ],
+ "estados": [
+  {
+   "id": "est-cancelado",
+   "nombre": "Cancelado",
+   "activo": true
+  },
+  {
+   "id": "est-confirmado",
+   "nombre": "Confirmado",
+   "activo": true
+  },
+  {
+   "id": "est-incumplido",
+   "nombre": "Incumplido",
+   "activo": true
+  },
+  {
+   "id": "est-cumplido",
+   "nombre": "Llegó",
+   "activo": true
+  },
+  {
+   "id": "est-pendiente",
+   "nombre": "Pendiente",
+   "activo": true
+  },
+  {
+   "id": "est-realizado",
+   "nombre": "Realizado",
+   "activo": true
+  },
+  {
+   "id": "est-reprogramado",
+   "nombre": "Reprogramado",
+   "activo": true
+  }
+ ],
+ "horarios_por_sede": [
+  {
+   "sede": "CJ MEDICAL - BOGOTA",
+   "especialistas_con_horario": 4,
+   "franjas": 19,
+   "abre": "09:00:00",
+   "cierra": "19:00:00"
+  },
+  {
+   "sede": "CJ MEDICAL EL TESORO",
+   "especialistas_con_horario": 4,
+   "franjas": 24,
+   "abre": "09:00:00",
+   "cierra": "19:00:00"
+  }
+ ],
+ "especialistas_por_sede": [
+  {
+   "sede": "CJ MEDICAL - BOGOTA",
+   "especialistas": 2
+  },
+  {
+   "sede": "CJ MEDICAL EL TESORO",
+   "especialistas": 3
+  }
+ ],
+ "citas_por_canal": [
+  {
+   "canal": "Agente IA",
+   "n": 6,
+   "desde": "2026-09-21",
+   "hasta": "2026-09-30"
+  },
+  {
+   "canal": "Administrador",
+   "n": 6,
+   "desde": "2026-09-21",
+   "hasta": "2026-09-22"
+  },
+  {
+   "canal": "Autoservicio",
+   "n": 4,
+   "desde": "2026-09-30",
+   "hasta": "2026-10-01"
+  }
+ ],
+ "citas_por_estado": [
+  {
+   "estado": "Confirmado",
+   "n": 7
+  },
+  {
+   "estado": "Pendiente",
+   "n": 4
+  },
+  {
+   "estado": "Reprogramado",
+   "n": 3
+  },
+  {
+   "estado": "Cancelado",
+   "n": 1
+  },
+  {
+   "estado": "Llegó",
+   "n": 1
+  }
+ ],
+ "citas_por_mes": [
+  {
+   "mes": "2026-09",
+   "n": 15
+  },
+  {
+   "mes": "2026-10",
+   "n": 1
+  }
+ ],
+ "variables": {
+  "AUTOSERVICIO_CLAVE": "sin poner",
+  "AUTOSERVICIO_ABIERTO": "sin poner",
+  "AUTOSERVICIO_DIAS": "sin poner",
+  "AUTOSERVICIO_PASO": "sin poner",
+  "AUTOSERVICIO_MINUTOS": "sin poner",
+  "AUTOSERVICIO_TOPE": "sin poner",
+  "AUTOSERVICIO_TOPE_CLIENTE": "sin poner",
+  "AUTOSERVICIO_DATOS_COMPLETOS": "sin poner",
+  "AUTOSERVICIO_BD": "sin poner",
+  "API_TOKEN": "sin poner",
+  "DATABASE_URL": "(puesta, no se copia su valor)",
+  "ORIGENES": "sin poner",
+  "TZ": "sin poner"
+ }
+}

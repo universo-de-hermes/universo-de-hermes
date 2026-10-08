@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tablero · Iniciar sesión</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;background:radial-gradient(130% 100% at 50% 0%,#1a1020,#0d0a12)}
+.card{width:360px;padding:36px 32px;border-radius:24px;background:rgba(255,255,255,.06);-webkit-backdrop-filter:blur(30px);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.1);box-shadow:0 20px 60px -20px rgba(0,0,0,.6)}
+h1{margin:0 0 6px;font-size:22px;font-weight:600;color:#fff;text-align:center}
+p{margin:0 0 28px;font-size:14px;color:rgba(255,255,255,.5);text-align:center}
+label{display:block;font-size:13px;color:rgba(255,255,255,.6);margin-bottom:6px}
+input{width:100%;height:44px;padding:0 16px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#fff;font-size:15px;margin-bottom:18px;transition:border-color .2s}
+input:focus{outline:none;border-color:#B0E0E6}
+button{width:100%;height:44px;border-radius:12px;border:0;background:#B0E0E6;color:#0a0a1a;font-size:15px;font-weight:600;cursor:pointer;transition:transform .15s,opacity .2s}
+button:hover{opacity:.9}
+button:active{transform:scale(.97)}
+.error{margin-top:12px;font-size:13px;color:#ff6b6b;display:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🔐 Tablero</h1>
+  <p>Inicia sesión para continuar</p>
+  <label>Usuario</label>
+  <input id="user" type="text" placeholder="Usuario" autocomplete="username">
+  <label>Contraseña</label>
+  <input id="pass" type="password" placeholder="••••••" autocomplete="current-password">
+  <button id="loginBtn">Ingresar</button>
+  <div class="error" id="errorMsg">Credenciales inválidas</div>
+</div>
+<script>
+const API = window.location.pathname.startsWith('/tablero') ? '/tablero' : '';
+document.getElementById('loginBtn').onclick = async () => {
+  const user = document.getElementById('user').value.trim();
+  const pass = document.getElementById('pass').value;
+  const err = document.getElementById('errorMsg');
+  if(!user || !pass) { err.style.display='block'; err.textContent='Completa ambos campos'; return; }
+  try {
+    const r = await fetch(API+'/api/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user,password:pass})
+    });
+    const d = await r.json();
+    if(d.ok){
+      localStorage.setItem('tablero_token', d.token);
+      localStorage.setItem('tablero_role', d.role);
+      window.location.href = API+'/';
+    } else {
+      err.style.display='block'; err.textContent=d.error||'Error';
+    }
+  } catch(e) {
+    err.style.display='block'; err.textContent='Error de conexión';
+  }
+};
+document.getElementById('pass').onkeydown = e => { if(e.key==='Enter') document.getElementById('loginBtn').click(); };
+</script>
+</body>
+</html>

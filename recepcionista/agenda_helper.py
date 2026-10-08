@@ -19,6 +19,7 @@ Cambios frente a la versión anterior:
 4. Cuando el nombre da para dos cosas, no adivina: devuelve las opciones para
    que Pepe pregunte.
 """
+import difflib
 import os
 import time
 import unicodedata
@@ -143,6 +144,14 @@ SINONIMOS = {
 SINONIMOS_SEDE = {
     "bogota": "bogota", "chico": "bogota", "chico norte": "bogota",
     "medellin": "tesoro", "el tesoro": "tesoro", "tesoro": "tesoro",
+    # El nombre completo de la sede y el sitio (el modelo puede repetirlos).
+    "parque comercial el tesoro": "tesoro", "parque comercial": "tesoro",
+    "c.c. el tesoro": "tesoro", "cc el tesoro": "tesoro",
+    "centro comercial el tesoro": "tesoro",
+    "cj medical - el tesoro": "tesoro", "cj medical el tesoro": "tesoro",
+    "cjmedical el tesoro": "tesoro",
+    "cj medical - bogota": "bogota", "cj medical bogota": "bogota",
+    "cjmedical bogota": "bogota", "oficity": "bogota",
 }
 
 _cache = {"datos": None, "ts": 0.0}
@@ -161,19 +170,84 @@ async def datos(refrescar: bool = False) -> dict:
     return _cache["datos"]
 
 
+# Como el cliente nombra al personal: "la doctora Arias", "el Dr. Cueter".
+TITULOS = {"dr", "dra", "doctor", "doctora", "sr", "sra", "senor", "senora",
+           "don", "dona", "la", "el", "los", "las", "especialista", "medico",
+           "medica", "profesional", "cosmetologa", "cosmetologo", "senorita"}
+
+
+def _limpia_titulos(s: str) -> str:
+    """«la doctora Arias» -> «arias». El cliente nombra a la gente con el
+    titulo por delante y eso ensuciaba la comparacion."""
+    return " ".join(w for w in _normal(s).split() if w not in TITULOS)
+
+
+def _parecida(a: str, b: str) -> float:
+    """Que tan parecidas son dos palabras. «julieth»/«julie» cuenta como
+    igual (una empieza con la otra): el cliente escribe el nombre a su
+    manera y en la agenda esta completo."""
+    if a == b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    if len(a) >= 3 and len(b) >= 3 and (a.startswith(b) or b.startswith(a)):
+        return 0.95
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
 def _puntaje(consulta: str, nombre: str) -> float:
+    """0.0 a 1.0. Mide cuanto de lo que dijo el cliente aparece en el
+    nombre real, no si lo dijo completo.
+
+    Antes exigia que TODAS las palabras coincidieran y dividia por el
+    nombre mas largo: «jorge cueter» contra «JORGE RAMIRO CUETER GUZMAN»
+    daba 0.25 (umbral 0.5) y Pepe le decia al cliente que esa especialista
+    no existia. Ahora da 0.88.
+    """
     c, n = _normal(consulta), _normal(nombre)
     if not c or not n:
         return 0.0
     if c == n:
         return 1.0
     if c in n or n in c:
-        return 0.8 + min(len(c), len(n)) / max(len(c), len(n)) * 0.15
-    palabras_c, palabras_n = set(c.split()), set(n.split())
-    comunes = palabras_c & palabras_n
-    if not comunes:
+        return 0.9 + min(len(c), len(n)) / max(len(c), len(n)) * 0.1
+    pc, pn = c.split(), n.split()
+    if not pc or not pn:
         return 0.0
-    return 0.5 * len(comunes) / max(len(palabras_c), len(palabras_n))
+    usadas, suma = set(), 0.0
+    for w in pc:
+        mejor, cual = 0.0, None
+        for j, x in enumerate(pn):
+            if j in usadas:
+                continue
+            s = _parecida(w, x)
+            if s > mejor:
+                mejor, cual = s, j
+        if mejor >= 0.8:
+            usadas.add(cual)
+            suma += mejor
+    cobertura = suma / len(pc)                  # cuanto de lo pedido aparece
+    precision = suma / max(len(pc), len(pn))    # cuanto del nombre se uso
+    return round(0.75 * cobertura + 0.25 * precision, 4)
+
+
+def _variantes(nombres: str, apellidos: str) -> list:
+    """Las formas en que la gente dice un nombre completo: «Jorge Cueter»,
+    «Cueter», «Cueter Guzman», «Jorge Ramiro Cueter Guzman». El personal se
+    conoce por el nombre corto y asi lo dice el cliente."""
+    n = _normal(nombres).split()
+    a = _normal(apellidos).split()
+    v = []
+    if n or a:
+        v.append(" ".join(n + a))
+    if n and a:
+        v.append("%s %s" % (n[0], a[0]))
+    if len(a) >= 2:
+        v.append("%s %s" % (a[0], a[-1]))
+    for w in n + a:
+        if len(w) > 3:
+            v.append(w)
+    return [x for x in dict.fromkeys(v) if x]
 
 
 async def resolver_servicio(texto: str) -> dict:
@@ -226,21 +300,110 @@ async def resolver_sede(texto: str) -> dict:
             "opciones": [{"id": s["id"], "nombre": s["nombre"]} for s in sedes]}
 
 
-async def resolver_especialista(texto: str) -> dict:
+async def especialistas_para(servicio: str = None, sede: str = None) -> list:
+    """Quienes pueden atender ese servicio en esa sede, con su nombre real.
+
+    Es la lista que Pepe debe ofrecer. Antes salia de una lista quemada en
+    el prompt y terminaba ofreciendo a alguien que no hace el servicio.
+    """
+    d = await datos()
+    sede_id = servicio_id = None
+    if sede:
+        rs = await resolver_sede(sede)
+        sede_id = rs.get("id") if rs.get("ok") else None
+    if servicio:
+        rv = await resolver_servicio(servicio)
+        servicio_id = rv.get("id") if rv.get("ok") else None
+    salida = []
+    for e in (d.get("especialistas") or []):
+        if not e.get("activo", True):
+            continue
+        if sede_id and sede_id not in (e.get("sedes") or []):
+            continue
+        svs = e.get("servicios") or []
+        # sin servicios asignados = hace todos (misma regla que la web)
+        if servicio_id and svs and servicio_id not in svs:
+            continue
+        salida.append({"id": e["id"],
+                       "nombre": (str(e.get("nombres", "")) + " " +
+                                  str(e.get("apellidos", ""))).strip()})
+    return salida
+
+
+async def resolver_especialista(texto: str, sede: str = None,
+                                servicio: str = None) -> dict:
+    """La especialista por nombre, como la dijo el cliente.
+
+    Acepta el nombre corto («Dr. Cueter», «la doctora Arias», «Valentina»):
+    se compara contra las formas en que se puede decir cada nombre real, no
+    contra una lista quemada. Si se sabe la sede o el servicio, solo se mira
+    entre quienes de verdad pueden atenderlos ahi.
+    """
     if not texto:
         return {"ok": True, "id": None, "nombre": None}
     d = await datos()
-    esp = d.get("especialistas") or []
-    marcados = sorted(
-        ({"id": e["id"],
-          "nombre": (str(e.get("nombres", "")) + " " + str(e.get("apellidos", ""))).strip(),
-          "p": _puntaje(texto, str(e.get("nombres", "")) + " " + str(e.get("apellidos", "")))}
-         for e in esp), key=lambda x: -x["p"])
-    if marcados and marcados[0]["p"] >= 0.5:
-        return {"ok": True, "id": marcados[0]["id"], "nombre": marcados[0]["nombre"]}
+    esp = [e for e in (d.get("especialistas") or []) if e.get("activo", True)]
+    if not esp:
+        return {"ok": False, "error": "SIN_DATOS",
+                "mensaje": "No pude leer la lista del personal."}
+
+    sede_id = servicio_id = None
+    if sede:
+        rs = await resolver_sede(sede)
+        sede_id = rs.get("id") if rs.get("ok") else None
+    if servicio:
+        rv = await resolver_servicio(servicio)
+        servicio_id = rv.get("id") if rv.get("ok") else None
+
+    def _puede(e: dict) -> bool:
+        if sede_id and sede_id not in (e.get("sedes") or []):
+            return False
+        svs = e.get("servicios") or []
+        if servicio_id and svs and servicio_id not in svs:
+            return False
+        return True
+
+    consulta = _limpia_titulos(texto) or _normal(texto)
+    marcados = []
+    for e in esp:
+        nombre = (str(e.get("nombres", "")) + " " + str(e.get("apellidos", ""))).strip()
+        p = max([_puntaje(consulta, v)
+                 for v in _variantes(e.get("nombres", ""), e.get("apellidos", ""))] or [0.0])
+        marcados.append({"id": e["id"], "nombre": nombre, "p": round(p, 4),
+                         "puede": _puede(e)})
+    marcados.sort(key=lambda x: -x["p"])
+
+    aptos = [m for m in marcados if m["puede"]]
+    if not aptos:
+        return {"ok": False, "error": "NO_EXISTE",
+                "mensaje": "No hay nadie que atienda eso ahi.",
+                "opciones": [{"id": m["id"], "nombre": m["nombre"]}
+                             for m in marcados[:6]]}
+
+    if marcados[0]["p"] >= 0.6 and not marcados[0]["puede"]:
+        # La reconozco, pero no hace ese servicio en esa sede. Se le dice
+        # claro al cliente y se le ofrecen solo quienes si pueden.
+        return {"ok": False, "error": "NO_LO_HACE",
+                "mensaje": f"{marcados[0]['nombre']} no atiende eso ahi.",
+                "quien_si": [{"id": m["id"], "nombre": m["nombre"]} for m in aptos[:6]],
+                "nota": ("Dile al cliente que esa especialista no atiende ese "
+                         "servicio en esa sede y ofrécele estas opciones TAL CUAL.")}
+
+    mejor = aptos[0]
+    empatados = [m for m in aptos if m["p"] >= 0.6 and mejor["p"] - m["p"] < 0.08]
+    if len(empatados) > 1:
+        return {"ok": False, "error": "AMBIGUO",
+                "mensaje": "Hay mas de una especialista que se llama asi.",
+                "opciones": [{"id": m["id"], "nombre": m["nombre"]} for m in empatados]}
+    if mejor["p"] >= 0.6:
+        return {"ok": True, "id": mejor["id"], "nombre": mejor["nombre"]}
+
     return {"ok": False, "error": "NO_EXISTE",
-            "mensaje": f"No tengo una especialista que se llame «{texto}».",
-            "opciones": [{"id": m["id"], "nombre": m["nombre"]} for m in marcados[:6]]}
+            "mensaje": f"No tengo a nadie registrado como «{texto}».",
+            "opciones": [{"id": m["id"], "nombre": m["nombre"]} for m in aptos[:6]],
+            "nota": ("Ofrécele al cliente estas opciones TAL CUAL. No inventes "
+                     "que alguien «no está en esa ciudad»: si está en esta "
+                     "lista, sí atiende ese servicio ahí.")}
 
 
 def nombre_servicio(sid: str) -> str:
@@ -306,6 +469,38 @@ async def citas_del_cliente(cliente_id: str) -> dict:
     proximas = [c for c in (d.get("citas") or [])
                 if str(c.get("fecha", "")) >= time.strftime("%Y-%m-%d")]
     return {"ok": True, "cliente": d, "citas": proximas}
+
+
+async def cita_del_cliente(cliente_id: str, fecha: str = None,
+                           hora: str = None) -> dict:
+    """La cita del cliente: la que coincida con fecha/hora, o la próxima.
+
+    Sirve para confirmar, cancelar o mover sin depender del cita_id: el
+    modelo no ve los resultados de sus herramientas entre mensajes, así que
+    no se puede confiar en que se acuerde del id.
+    """
+    r = await citas_del_cliente(cliente_id)
+    if not r["ok"]:
+        return r
+    citas = r["citas"] or []
+    if fecha:
+        del_dia = [c for c in citas if str(c.get("fecha"))[:10] == str(fecha)[:10]]
+        if del_dia:
+            citas = del_dia
+    if hora:
+        con_hora = [c for c in citas if str(c.get("inicio"))[:5] == str(hora)[:5]]
+        if con_hora:
+            citas = con_hora
+    if not citas:
+        return {"ok": False, "error": "CITA_NO_EXISTE",
+                "mensaje": "Ese cliente no tiene citas próximas."}
+    c = citas[0]
+    return {"ok": True, "cita_id": c.get("cita_id") or c.get("id"),
+            "fecha": str(c.get("fecha"))[:10],
+            "hora": str(c.get("inicio"))[:5],
+            "servicio": c.get("servicio"), "sede": c.get("sede"),
+            "especialista": c.get("especialista"),
+            "estado": c.get("estado")}
 
 
 # ─────────────────────────────────────────────────────── horas y citas ────
@@ -429,9 +624,35 @@ async def horario_especialista(especialista: str, fecha: str = None,
             "dias": salida}
 
 
+async def especialista_libre(sede_id: str, servicio_id: str, fecha: str,
+                             hora: str) -> dict:
+    """Quien esta libre a esa hora para ese servicio.
+
+    Se usa cuando el cliente no pidio a nadie: antes Pepe tenia que nombrar
+    una especialista y la inventaba (de ahi salio el «ESPECIALISTA_NO_
+    DISPONIBLE: Valentina Baquero»).
+    """
+    r = await _llamar("POST", "/huecos/dia", {
+        "fecha": fecha, "sede": sede_id, "servicio": servicio_id,
+        "especialista": None, "paso": PASO_MINUTOS})
+    if not r["ok"]:
+        return r
+    for h in (r["datos"] or []):
+        if str(h.get("inicio"))[:5] == str(hora)[:5]:
+            return {"ok": True, "especialista_id": h["especialista_id"],
+                    "especialista": nombre_especialista(h["especialista_id"])}
+    return {"ok": False, "error": "SIN_CUPO",
+            "mensaje": "A esa hora ya no hay nadie libre para ese servicio."}
+
+
 async def apartar_cupo(especialista_id: str, sede_id: str, fecha: str, hora: str,
                        servicio_id: str, referencia: str = "",
                        minutos: int = 5) -> dict:
+    if not especialista_id:
+        rl = await especialista_libre(sede_id, servicio_id, fecha, hora)
+        if not rl["ok"]:
+            return rl
+        especialista_id = rl["especialista_id"]
     r = await _llamar("POST", "/cupos/apartar", {
         "especialista": especialista_id, "sede": sede_id, "fecha": fecha,
         "inicio": hora, "servicio": servicio_id, "minutos": minutos,
@@ -449,7 +670,23 @@ async def soltar_cupo(reserva: str) -> dict:
 async def agendar(cliente_id: str, especialista_id: str, sede_id: str,
                   fecha: str, hora: str, servicio_id: str,
                   notas: str = "", reserva: str = None,
-                  canal: str = "Agente IA", por: str = "Pepe") -> dict:
+                  canal: str = "Agente IA", por: str = "Pepe",
+                  referencia: str = "") -> dict:
+    if not especialista_id:
+        rl = await especialista_libre(sede_id, servicio_id, fecha, hora)
+        if not rl["ok"]:
+            return rl
+        especialista_id = rl["especialista_id"]
+    if not reserva and referencia:
+        # La reserva que el mismo aparto bloquea la cita si no se manda: la
+        # funcion de Postgres la ve como de otra conversacion y responde
+        # CUPO_APARTADO. Como el id no se puede recordar, se busca aqui por
+        # la referencia (el telefono con el que se aparto).
+        rv = await _llamar("GET", "/cupos/vigente",
+                           params={"referencia": referencia, "fecha": fecha,
+                                   "inicio": hora})
+        if rv["ok"] and (rv["datos"] or {}).get("id"):
+            reserva = rv["datos"]["id"]
     cuerpo = {"cliente_id": cliente_id, "especialista": especialista_id,
               "sede": sede_id, "fecha": fecha, "inicio": hora,
               "servicio": servicio_id, "canal": canal, "por": por,

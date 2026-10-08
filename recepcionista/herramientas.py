@@ -16,6 +16,7 @@ Se usa así desde main.py:
 En COMO-CONECTAR-PEPE.md está el bucle completo, paso a paso.
 """
 import json
+import time
 
 import agenda_helper as ag
 
@@ -177,29 +178,48 @@ HERRAMIENTAS = [
         "name": "confirmar_cita",
         "description": (
             "Pasa la cita de Pendiente a Confirmado. Se llama cuando el cliente "
-            "responde que sí va, después de que le mandaste el mensaje de cita "
-            "agendada. Toda cita nace en Pendiente: solo la confirmación del "
-            "cliente la mueve."),
+            "responde que sí va. Basta con la CÉDULA del cliente: la "
+            "herramienta busca su cita sola. Si el cliente tiene varias citas "
+            "próximas, manda también la fecha o la hora de la que confirma."),
         "parameters": {"type": "object", "properties": {
-            "cita_id": {"type": "string"}}, "required": ["cita_id"]}}},
+            "cita_id": {"type": "string", "description": "Opcional, si lo tienes."},
+            "documento": {"type": "string", "description": "Cédula del cliente."},
+            "telefono": {"type": "string", "description": "Celular, si no hay cédula."},
+            "fecha": {"type": "string", "description": "AAAA-MM-DD, si tiene varias citas."},
+            "hora": {"type": "string", "description": "HH:MM, si tiene varias citas."}},
+            "required": []}}},
 
     {"type": "function", "function": {
         "name": "cancelar_cita",
         "description": (
             "Cancela y libera la hora al instante para que otro la tome. "
-            "Se pregunta el motivo antes, con cariño, no como interrogatorio."),
+            "Se pregunta el motivo antes, con cariño, no como interrogatorio. "
+            "Basta con la CÉDULA del cliente: la herramienta busca su cita."),
         "parameters": {"type": "object", "properties": {
-            "cita_id": {"type": "string"},
-            "motivo": {"type": "string"}}, "required": ["cita_id"]}}},
+            "cita_id": {"type": "string", "description": "Opcional, si lo tienes."},
+            "documento": {"type": "string", "description": "Cédula del cliente."},
+            "telefono": {"type": "string"},
+            "fecha": {"type": "string", "description": "AAAA-MM-DD, si tiene varias citas."},
+            "hora": {"type": "string", "description": "HH:MM, si tiene varias citas."},
+            "motivo": {"type": "string"}}, "required": []}}},
 
     {"type": "function", "function": {
         "name": "reprogramar_cita",
         "description": (
             "Mueve la cita a otra fecha u hora. La anterior queda marcada como "
-            "reprogramada, no se borra. Primero hay que mirar horas libres."),
+            "reprogramada, no se borra. Primero hay que mirar horas libres. "
+            "Basta con la CÉDULA del cliente: la herramienta busca su cita. "
+            "OJO: aquí «fecha» y «hora» son las NUEVAS, no las de la cita "
+            "actual."),
         "parameters": {"type": "object", "properties": {
-            "cita_id": {"type": "string"},
-            "fecha": {"type": "string", "description": "AAAA-MM-DD"},
+            "cita_id": {"type": "string", "description": "Opcional, si lo tienes."},
+            "documento": {"type": "string", "description": "Cédula del cliente."},
+            "telefono": {"type": "string"},
+            "cita_fecha": {"type": "string",
+                           "description": "La fecha que tiene hoy la cita, si tiene varias."},
+            "cita_hora": {"type": "string",
+                          "description": "La hora que tiene hoy la cita, si tiene varias."},
+            "fecha": {"type": "string", "description": "AAAA-MM-DD (la nueva)"},
             "hora": {"type": "string", "description": "HH:MM"},
             "especialista_id": {"type": "string", "description": "Solo si cambia."},
             "sede_id": {"type": "string", "description": "Solo si cambia."},
@@ -242,6 +262,20 @@ MOTIVOS = {
 _ID_PREFIJO = {"especialista": "esp-", "sede": "sede-", "servicio": "srv-"}
 
 
+def _dias_hasta(fecha) -> int:
+    """Días que faltan de hoy a esa fecha (AAAA-MM-DD). None si no se
+    entiende. Se ancla a las 12:00 para que el cambio de hora no corra
+    el día."""
+    try:
+        f = time.strptime(str(fecha)[:10], "%Y-%m-%d")
+    except Exception:
+        return None
+    h = time.localtime()
+    d1 = time.mktime((h.tm_year, h.tm_mon, h.tm_mday, 12, 0, 0, 0, 0, -1))
+    d2 = time.mktime((f.tm_year, f.tm_mon, f.tm_mday, 12, 0, 0, 0, 0, -1))
+    return int(round((d2 - d1) / 86400))
+
+
 async def _resolver_uno(valor, tipo: str) -> dict:
     """Devuelve {'ok', 'id'} a partir del id o del nombre."""
     v = str(valor or "").strip()
@@ -265,8 +299,8 @@ async def _resolver_cita(a: dict) -> dict:
     que no se puede confiar en que se acuerde de los ids: se resuelven aquí.
     """
     salida = {}
-    for campo, tipo, etiqueta in (("especialista", "especialista", "la especialista"),
-                                  ("sede", "sede", "la sede"),
+    # Primero la sede y el servicio: con eso se sabe quien puede atender.
+    for campo, tipo, etiqueta in (("sede", "sede", "la sede"),
                                   ("servicio", "servicio", "el servicio")):
         r = await _resolver_uno(a.get(campo) or a.get(campo + "_id"), tipo)
         if not r.get("ok"):
@@ -275,7 +309,42 @@ async def _resolver_cita(a: dict) -> dict:
             return {"ok": False, "error": "FALTA_" + tipo.upper(),
                     "mensaje": "Me falta %s para agendar." % etiqueta}
         salida[campo + "_id"] = r["id"]
+    # La especialista: si el cliente no pidio a nadie, la escoge la agenda
+    # entre quienes esten libres. Antes era obligatoria y Pepe se la
+    # inventaba ("ESPECIALISTA_NO_DISPONIBLE: Valentina Baquero").
+    v = str(a.get("especialista") or a.get("especialista_id") or "").strip()
+    if not v:
+        salida["especialista_id"] = None
+        return {"ok": True, **salida}
+    if v.startswith("esp-"):
+        salida["especialista_id"] = v
+        return {"ok": True, **salida}
+    r = await ag.resolver_especialista(v, sede=salida["sede_id"],
+                                       servicio=salida["servicio_id"])
+    if not r.get("ok"):
+        return r
+    salida["especialista_id"] = r["id"]
     return {"ok": True, **salida}
+
+
+async def _resolver_cita_id(a: dict, ctx: dict) -> dict:
+    """El cita_id, o la cita del cliente que coincida con fecha/hora.
+
+    El modelo no ve los resultados de sus herramientas entre mensajes: si
+    se le pide el cita_id, se lo inventa. Por eso se resuelve aquí.
+    """
+    cid = str(a.get("cita_id") or "").strip()
+    if cid.startswith("c-"):
+        return {"ok": True, "cita_id": cid}
+    rcl = await _resolver_cliente(a, ctx)
+    if not rcl["ok"]:
+        return rcl
+    r = await ag.cita_del_cliente(rcl["cliente_id"],
+                                  fecha=a.get("cita_fecha") or a.get("fecha"),
+                                  hora=a.get("cita_hora") or a.get("hora"))
+    if not r["ok"]:
+        return r
+    return {"ok": True, "cita_id": r["cita_id"]}
 
 
 async def _resolver_cliente(a: dict, ctx: dict) -> dict:
@@ -295,6 +364,35 @@ async def _resolver_cliente(a: dict, ctx: dict) -> dict:
                 "mensaje": ("No encuentro al cliente en la agenda. Regístralo "
                             "primero con registrar_cliente.")}
     return {"ok": True, "cliente_id": cl[0]["id"]}
+
+
+def _sincronizar_crm(ctx: dict, ficha: dict) -> None:
+    """Deja la copia del cliente en el CRM igual a la de la agenda.
+
+    La tarjeta del CRM mostraba «Celular: —» y «Correo: —» aunque Pepe ya
+    tenia los datos: el CRM guarda su propia copia (SQLite) y nadie la
+    actualizaba cuando Pepe identificaba al cliente por cedula. Nunca puede
+    tumbar la conversacion: si falla, se sigue.
+    """
+    cid = ctx.get("client_id")
+    if not cid:
+        return
+    campos = {}
+    if ficha.get("nombre_completo"):
+        campos["name"] = str(ficha["nombre_completo"]).strip()
+    if ficha.get("telefono"):
+        campos["phone"] = str(ficha["telefono"]).strip()
+    if ficha.get("correo"):
+        campos["email"] = str(ficha["correo"]).strip()
+    if ficha.get("documento"):
+        campos["document"] = str(ficha["documento"]).strip()
+    if not campos:
+        return
+    try:
+        from crm.database import update_client_data
+        update_client_data(int(cid), **campos)
+    except Exception as e:
+        print("  (aviso) no pude sincronizar el CRM: %s" % e)
 
 
 def _ficha(c: dict) -> dict:
@@ -337,8 +435,10 @@ async def ejecutar(nombre: str, argumentos, contexto: dict = None) -> dict:
             if not r["ok"]:
                 return r
             cl = r["clientes"]
-            return {"ok": True, "encontrados": len(cl),
-                    "clientes": [_ficha(c) for c in cl[:5]]}
+            fichas = [_ficha(c) for c in cl[:5]]
+            if fichas:
+                _sincronizar_crm(ctx, fichas[0])
+            return {"ok": True, "encontrados": len(cl), "clientes": fichas}
 
         if nombre == "actualizar_cliente":
             r = await ag.actualizar_cliente(
@@ -362,6 +462,7 @@ async def ejecutar(nombre: str, argumentos, contexto: dict = None) -> dict:
             if not r["ok"]:
                 return r
             c = r["cliente"] or {}
+            _sincronizar_crm(ctx, _ficha(c))
             return {"ok": True, "cliente_id": c.get("id"),
                     "nombre": " ".join(x for x in [c.get("primer_nombre"),
                                                    c.get("primer_apellido")] if x)}
@@ -382,7 +483,10 @@ async def ejecutar(nombre: str, argumentos, contexto: dict = None) -> dict:
             return {"ok": True, "servicio": r["servicio"], "servicio_id": r["servicio_id"],
                     "sede": r["sede"], "sede_id": r["sede_id"],
                     "duracion_minutos": r["duracion"], "dias": dias,
-                    "nota": "Ofrécele dos o tres, no la lista entera."}
+                    "nota": ("Ofrécele dos o tres, no la lista entera. Cada "
+                             "hora trae la especialista que la tiene libre: si "
+                             "el cliente no pidió a nadie, no la nombres, solo "
+                             "agenda y la agenda le asigna esa misma.")}
 
         if nombre == "ver_agenda_especialista":
             return await ag.horario_especialista(
@@ -413,12 +517,34 @@ async def ejecutar(nombre: str, argumentos, contexto: dict = None) -> dict:
             rc = await _resolver_cita(a)
             if not rc["ok"]:
                 return rc
-            return await ag.agendar(
+            r = await ag.agendar(
                 cliente_id=rcl["cliente_id"],
                 especialista_id=rc["especialista_id"], sede_id=rc["sede_id"],
                 fecha=a["fecha"], hora=a["hora"],
                 servicio_id=rc["servicio_id"], notas=a.get("notas", ""),
-                reserva=a.get("reserva"))
+                reserva=a.get("reserva"),
+                referencia=ctx.get("telefono", ""))
+            if not r.get("ok"):
+                return r
+            # Regla de CJ Medical: si la cita es para hoy o para mañana queda
+            # CONFIRMADA sola; de pasado mañana en adelante queda PENDIENTE
+            # esperando que el cliente confirme.
+            dias = _dias_hasta(a.get("fecha"))
+            if dias is not None and 0 <= dias <= 1:
+                rc2 = await ag.confirmar(r["cita_id"])
+                if rc2.get("ok"):
+                    r["estado"] = rc2.get("estado")
+                    r["confirmada_sola"] = True
+                    r["nota"] = ("Quedó CONFIRMADA sola porque es para hoy o "
+                                 "para mañana: dile que ya está confirmada y "
+                                 "que lo esperamos. NO le pidas que confirme.")
+                else:
+                    r["nota"] = ("Quedó en Pendiente. Pídele que confirme su "
+                                 "asistencia.")
+            else:
+                r["nota"] = ("Quedó PENDIENTE porque es de pasado mañana en "
+                             "adelante: pídele que confirme su asistencia.")
+            return r
 
         if nombre == "ver_citas_del_cliente":
             r = await ag.citas_del_cliente(a["cliente_id"])
@@ -432,10 +558,16 @@ async def ejecutar(nombre: str, argumentos, contexto: dict = None) -> dict:
                  "estado": c.get("estado")} for c in r["citas"][:10]]}
 
         if nombre == "confirmar_cita":
-            return await ag.confirmar(a["cita_id"])
+            r = await _resolver_cita_id(a, ctx)
+            if not r["ok"]:
+                return r
+            return await ag.confirmar(r["cita_id"])
 
         if nombre == "cancelar_cita":
-            return await ag.cancelar(a["cita_id"], a.get("motivo", ""))
+            r = await _resolver_cita_id(a, ctx)
+            if not r["ok"]:
+                return r
+            return await ag.cancelar(r["cita_id"], a.get("motivo", ""))
 
         if nombre == "reprogramar_cita":
             rep = {}
@@ -445,8 +577,11 @@ async def ejecutar(nombre: str, argumentos, contexto: dict = None) -> dict:
                 if not r.get("ok"):
                     return r
                 rep[campo + "_id"] = r.get("id")
+            rcid = await _resolver_cita_id(a, ctx)
+            if not rcid["ok"]:
+                return rcid
             return await ag.reprogramar(
-                cita_id=a["cita_id"], fecha=a["fecha"], hora=a["hora"],
+                cita_id=rcid["cita_id"], fecha=a["fecha"], hora=a["hora"],
                 especialista_id=rep["especialista_id"],
                 sede_id=rep["sede_id"], motivo=a.get("motivo", ""))
 
@@ -536,7 +671,7 @@ El orden, siempre el mismo:
    información esté correcta:
 
    📍 Ciudad: [CIUDAD]
-   🏢 Sede: [SEDE] - [DIRECCIÓN]
+   🏢 Sede: [SEDE] · [DIRECCIÓN]
    ✨ Servicio: [SERVICIO]
    📅 Fecha: [FECHA]
    🕐 Hora: [HORA]
@@ -551,26 +686,33 @@ El orden, siempre el mismo:
    Hasta que no diga que está correcto, NO agendas: la herramienta te va a
    devolver un error si lo intentas.
 
-7. AGENDA. Recién cuando el cliente dijo que sí. Manda la especialista, la
-   sede y el servicio por NOMBRE (como los dijo el cliente) y la cédula del
-   cliente: la herramienta los busca sola, no necesitas acordarte de los
-   ids. Si te devuelve un error, LEE el mensaje, corrige eso y vuelve a
+7. AGENDA. Recién cuando el cliente dijo que sí. Manda la sede y el servicio
+   por NOMBRE (como los dijo el cliente) y la cédula del cliente: la
+   herramienta los busca sola, no necesitas acordarte de los ids. La
+   especialista solo la mandas si el cliente pidió a alguien en particular;
+   si no pidió a nadie, déjala vacía y la agenda le asigna a quien esté
+   libre. Si te devuelve un error, LEE el mensaje, corrige eso y vuelve a
    intentarlo; no le pases el problema al cliente.
 
 8. MANDA LA CONFIRMACIÓN. Apenas quede agendada, escríbele el detalle de la
-   cita: servicio, fecha, hora, sede y especialista, y pídele que confirme su
-   asistencia. La cita nace en estado PENDIENTE.
+   cita: servicio, fecha, hora, sede y especialista. El estado depende de la
+   fecha, y esto lo hace la herramienta sola:
+
+   - Si es para HOY o para MAÑANA: queda CONFIRMADA automáticamente. Dile que
+     ya quedó confirmada y que lo esperamos. NO le pidas que confirme.
+   - Si es de PASADO MAÑANA en adelante: queda PENDIENTE. Pídele que confirme
+     su asistencia.
 
 9. CUANDO EL CLIENTE CONFIRME, muévela a CONFIRMADO. Si responde que sí va
-   —«confirmo», «allá estaré», «sí señor»—, llama a confirmar_cita y recién ahí
-   dile:
+   —«confirmo», «allá estaré», «sí señor»—, llama a confirmar_cita con la
+   CÉDULA del cliente (la herramienta busca su cita sola) y recién ahí dile:
 
    «Qué bien, [nombre]. Su cita de [servicio] para el [fecha] a las [hora] en
    [sede] ha sido confirmada. Te esperamos. Si necesitas agendar otro servicio
    o tienes alguna duda, estoy aquí para ayudarte.»
 
-   Toda cita se queda en Pendiente mientras el cliente no confirme. No la des
-   por confirmada tú solo.
+   Una cita de pasado mañana en adelante se queda en Pendiente mientras el
+   cliente no confirme. No la des por confirmada tú solo.
 
 ## Cuando algo sale mal
 
@@ -604,6 +746,23 @@ Te dice si trabaja ese día, su horario con el almuerzo y sus horas libres.
 
 Nunca digas si alguien trabaja o no sin haber llamado a la herramienta: eso
 no se adivina.
+
+## Cómo se llaman las especialistas
+
+El cliente las nombra como las conoce: «el Dr. Cueter», «la doctora Arias»,
+«Valentina», «Diana». En la agenda están con el nombre completo. La
+herramienta reconoce los dos, así que mándale el nombre TAL COMO lo dijo el
+cliente: no lo completes, no lo traduzcas y no lo inventes.
+
+- Si la herramienta no reconoce el nombre, te devuelve `opciones`: son las
+  especialistas reales que sí pueden atender eso en esa sede. Ofrécelas TAL
+  CUAL, con el nombre que te dio la herramienta.
+- NUNCA te inventes la razón por la que no encontraste a alguien. Frases
+  como «no está registrada en esa ciudad» son mentira y confunden al
+  cliente: si está en la lista, atiende ahí.
+- Solo se puede agendar un servicio con quien lo hace. Si el cliente pide a
+  alguien que no hace ese servicio, la herramienta te dice quiénes sí: no
+  insistas con la que él pidió.
 
 ## Cuándo NO sigues tú
 

@@ -3,39 +3,35 @@ CRM CJ Medical - Servidor Web (FastAPI)
 Panel de asesores con pipeline, historial y respuestas
 Sin Jinja2 - HTML embebido + API REST
 """
+import asyncio
+import hashlib
+import hmac
 import json
+import logging
 import os
+import re
 import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from fastapi import FastAPI, Request, HTTPException, Form, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
+import httpx
+from fastapi.responses import (HTMLResponse, RedirectResponse,
+                                JSONResponse, FileResponse, PlainTextResponse)
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from crm.database import (
     init_db, get_all_clients, get_client_detail, get_or_create_client,
     save_message, update_client_status, verify_advisor,
-    get_all_advisors, update_client_data, create_appointment
+    get_all_advisors, update_client_data, create_appointment, get_connection,
+    get_conversation
 )
 
 # Cargar .env
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
-
-# ─── Twilio ───
-from twilio.rest import Client as TwilioClient
-from twilio.twiml.messaging_response import MessagingResponse
-
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "+14155238886")
-twilio_client = None
-if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
-    twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    print("✅ Twilio cliente listo")
 
 app = FastAPI(title="CJ Medical CRM")
 
@@ -266,7 +262,7 @@ function render(d){{const cols={{'leads_nuevos':[],'pendientes_agendar':[],'agen
 function card(c){{const n=c.name||'Sin nombre';const t=c.last_message?c.last_message.substring(0,60):'';const tm=c.updated_at?new Date(c.updated_at+'Z').toLocaleString('es-CO',{{hour:'2-digit',minute:'2-digit'}}):'';const urg=c.status==='pendiente'?'<span style=display:inline-block;background:#ff1744;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;animation:pp 1.5s infinite;>🔔 Pendiente</span>':'';return'<div class='+(c.status==='pendiente'?'client-card urgent':'client-card')+' onclick="openClient('+c.id+')"><span class=channel-badge channel-telegram>📱 Telegram</span><div class=name>'+n+urg+'</div><div class=meta>🕐 '+tm+' · '+(c.message_count||0)+' msgs</div>'+(t?'<div class=preview>'+t+'</div>':'')+'</div>'}}
 async function loadStats(){{let r=await fetch('/api/pipeline/stats');let d=await r.json();for(let[k,v]of Object.entries(d)){{let e=document.getElementById('c-'+k);if(e)e.textContent=v}}}}
 function filter(s){{flt=s;applyFilters();}}
-async function openClient(id){{cid=id;let r=await fetch('/api/clients/'+id);let c=await r.json();document.getElementById('pName').textContent=(c.name||'Cliente')+(c.ai_disabled?' 🔇':' ');document.getElementById('pChannel').textContent='📱 Telegram';let sb=document.getElementById('pStatus');sb.textContent=c.status||'nuevo';sb.className='status-badge s-'+(c.status||'nuevo');let info='';if(c.appointments&&c.appointments.length){{let a=c.appointments[0];info+='<div><span class=lbl>✨ Servicio:</span> <span class=val>'+(a.service||'—')+'</span></div><div><span class=lbl>📍 Sede:</span> <span class=val>'+(a.city||'')+' '+(a.location||'')+'</span></div><div><span class=lbl>📅 Fecha:</span> <span class=val>'+(a.date_requested||'—')+'</span></div><div><span class=lbl>🕐 Hora:</span> <span class=val>'+(a.time_requested||'—')+'</span></div>'}}
+async function openClient(id){{cid=id;let r=await fetch('/api/clients/'+id);let c=await r.json();document.getElementById('pName').textContent=(c.name||'Cliente')+(c.ai_disabled?' 🔇':' ');let ch=c.channel||'telegram';let chName=ch==='whatsapp'?'WhatsApp':(ch==='telegram'?'Telegram':ch);let chIcon=ch==='whatsapp'?'💬':'📱';document.getElementById('pChannel').textContent=chIcon+' '+chName;let sb=document.getElementById('pStatus');sb.textContent=c.status||'nuevo';sb.className='status-badge s-'+(c.status||'nuevo');let info='';if(c.appointments&&c.appointments.length){{let a=c.appointments[0];info+='<div><span class=lbl>✨ Servicio:</span> <span class=val>'+(a.service||'—')+'</span></div><div><span class=lbl>📍 Sede:</span> <span class=val>'+(a.city||'')+' '+(a.location||'')+'</span></div><div><span class=lbl>📅 Fecha:</span> <span class=val>'+(a.date_requested||'—')+'</span></div><div><span class=lbl>🕐 Hora:</span> <span class=val>'+(a.time_requested||'—')+'</span></div>'}}
 info+='<div><span class=lbl>📱 Celular:</span> <span class=val>'+(c.phone||'—')+'</span></div><div><span class=lbl>📧 Correo:</span> <span class=val>'+(c.email||'—')+'</span></div>';document.getElementById('pInfo').innerHTML=info;let conv=document.getElementById('pConversation');if(c.messages&&c.messages.length){{conv.innerHTML=c.messages.map(m=>{{let rc=m.role==='client'?'client':m.role==='advisor'?'advisor':'bot';let rl=m.role==='client'?'🧑 Cliente':m.role==='advisor'?'👤 Asesor':'🤖 Pepe';let tm=new Date(m.created_at+'Z').toLocaleTimeString('es-CO',{{hour:'2-digit',minute:'2-digit'}});return'<div class="msg '+rc+'"><strong>'+rl+'</strong><br>'+m.content+'<span class=time>'+tm+'</span></div>'}}).join('')}}else conv.innerHTML='<p style=color:#999>No hay mensajes aún.</p>';let sa=document.getElementById('pStatusActions');const ss=[{{k:'pendientes_agendar',l:'⏳ Pendiente Agendar',c:'#e65100'}},{{k:'agendados',l:'✅ Agendado',c:'#2e7d32'}},{{k:'pqrs',l:'🚨 PQRS',c:'#c62828'}},{{k:'no_interesados',l:'🚫 No Interesado',c:'#888'}}];sa.innerHTML=ss.map(s=>'<button class=btn-status style="border-color:'+s.c+';color:'+s.c+'" onclick="changeStatus('+id+',\\''+s.k+'\\')">'+s.l+'</button>').join('');let pl=document.getElementById('pLog');if(c.pipeline_log&&c.pipeline_log.length){{pl.innerHTML='<h4 style=color:#555;font-size:13px;>📋 Historial</h4>'+c.pipeline_log.map(l=>'<div style=font-size:12px;color:#888;padding:4px 0;border-bottom:1px solid #f0f0f0;>'+(l.created_at?new Date(l.created_at+'Z').toLocaleString('es-CO'):'')+' — <b>'+(l.from_status||'?')+'</b> → <b>'+l.to_status+'</b></div>').join('')}}else pl.innerHTML='';document.getElementById('panel').classList.add('open');document.getElementById('overlay').classList.add('show');renderChips();let ri=document.getElementById('replyInput');if(ri){{ri.value='';ri.style.height='auto';}}updateCharCount();}}
 function closePanel(){{document.getElementById('panel').classList.remove('open');document.getElementById('overlay').classList.remove('show');cid=null;}}
 async function changeStatus(id,s){{const statusMap={{'pendientes_agendar':'pendiente','agendados':'agendado','pqrs':'pqrs','no_interesados':'no_interesado'}};const dbStatus=statusMap[s]||s;let n=prompt('Nota opcional:');await fetch('/api/clients/'+id+'/status',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{status:dbStatus,note:n||''}})}});showToast('✅ Estado actualizado');if(cid===id)openClient(id);loadPipeline();}}
@@ -288,9 +284,9 @@ cy=cy||g('Ciudad:');let sedeRaw=g('Sede:');if(sedeRaw)lo=sedeRaw;sv=sv||g('Servi
 let ng=g('Nombre:');if(ng&&ng.split(' ').length>=nm.split(' ').filter(x=>x).length)nm=ng;
 let esp=g('Especialista:');if(esp)pr=esp;}}}}}}
 // Si la sede extraída trae "Sede - Dirección" en un solo campo, quedarnos solo con el nombre de la sede
-if(lo.indexOf(' - ')>=0)lo=lo.split(' - ')[0].trim();
+let _m=lo.split(/\s*·\s*/);if(_m.length<2)_m=lo.split(/\s+-\s+/);if(_m.length>1)lo=_m[0].trim();
 let name=nm||'[Nombre]';let svc=sv||'[Servicio]';let city=cy||'[Ciudad]';let loc=lo||'[Sede]';let date=dt||'[Fecha]';let time=tm||'[Hora]';
-let addr='';if(city==='Bogota'||city==='Bogotá'||loc==='Chico Norte')addr='Cra 11A #96-51 Edificio Oficity Local 102';else if(city==='Medellin'||city==='Medellín'||loc.indexOf('Tesoro')>=0)addr='Parque Comercial El Tesoro, Sótano 4 Plaza Norte, Cra 25A #1a sur - 45, Local 6100, Medellín';
+let addr='';if(city==='Bogota'||city==='Bogotá'||loc==='Chico Norte')addr='Cra 11A #96-51, Edificio Oficity, Local 102, Chicó Norte, Bogotá';else if(city==='Medellin'||city==='Medellín'||loc.indexOf('Tesoro')>=0)addr='Cra 25A #1a sur-45, LC 6100, Sótano 4 por la plaza de cines, Torre Norte, Medellín';
 // Auto-detectar especialista
 if(!pr){{let s=svc.toLowerCase();let c=city||'';if(s.includes('terapia'))pr=c.includes('Medellin')||c.includes('Medellín')?'Valentina Baquero':'Diana Carolina Ruiz';else if(s.includes('masaje'))pr='Valentina Baquero';else if(s.includes('carbon'))pr=c.includes('Medellin')||c.includes('Medellín')?'Valentina Baquero':'Diana Carolina Ruiz';else if(s.includes('hidra'))pr=c.includes('Medellin')||c.includes('Medellín')?'Valentina Baquero':'Diana Carolina Ruiz';else if(s.includes('casmara'))pr='Valentina Baquero';else if(s.includes('peeling'))pr='Dra. Julieth Arias';else if(s.includes('depilacion')||s.includes('depilación'))pr=c.includes('Medellin')||c.includes('Medellín')?'Valentina Baquero':'Diana Carolina Ruiz';else if(s.includes('micropigment'))pr=c.includes('Bogota')||c.includes('Bogotá')?'Dr. Jorge Cueter':'Dra. Julieth Arias';else if(s.includes('valoracion')||s.includes('valoración'))pr='Dr. Jorge Cueter';else if(s.includes('botox'))pr='Dr. Jorge Cueter';else if(s.includes('radiofrecuencia'))pr='Dr. Jorge Cueter';else if(s.includes('exosomas'))pr='Dr. Jorge Cueter';}}
 let prof=pr||'[Especialista]';
@@ -473,7 +469,15 @@ async def api_reply_client(client_id: int, request: Request):
     if not content:
         raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío")
 
-    save_message(client_id, "advisor", content, channel="telegram")
+    # El canal REAL del cliente: antes quedaba siempre en «telegram» aunque
+    # el cliente hubiera escrito por WhatsApp, y quien miraba el CRM no sabía
+    # por dónde contestarle.
+    _con = __import__("crm.database", fromlist=["get_connection"]).get_connection()
+    _fila = _con.execute("SELECT channel FROM clients WHERE id = ?",
+                         (client_id,)).fetchone()
+    _con.close()
+    _canal = (_fila["channel"] if _fila else None) or "telegram"
+    save_message(client_id, "advisor", content, channel=_canal)
 
     conn = __import__("crm.database", fromlist=["get_connection"]).get_connection()
     conn.execute(
@@ -528,231 +532,235 @@ async def logo():
     return JSONResponse({"error": "Logo no encontrado"}, status_code=404)
 
 
-# ─── Twilio Webhook ───
-@app.post("/api/twilio/whatsapp")
-async def twilio_whatsapp_webhook(request: Request):
-    """Recibe mensajes entrantes de WhatsApp via Twilio y responde por TwiML"""
-    import logging
-    logger = logging.getLogger("twilio-webhook")
-    
-    form = await request.form()
-    from_wa = form.get("From", "")  # Ej: "whatsapp:+573001234567"
-    body = form.get("Body", "").strip()
-    
-    if not body or not from_wa:
-        return HTMLResponse(content=str(MessagingResponse()), media_type="application/xml")
-    
-    # Extraer número (quitar prefijo "whatsapp:+")
-    phone = from_wa.replace("whatsapp:", "").replace("+", "").strip()
-    logger.info(f"📩 Twilio WhatsApp de {phone}: {body[:60]}")
-    
-    resp = MessagingResponse()
-    
+# ─── WhatsApp Cloud API (Meta oficial) ───
+# El camino definitivo: gratis para las conversaciones que inicia el cliente
+# (que es el caso: el cliente escribe primero) y sin riesgo de baneo.
+# Twilio y EvolutionAPI se eliminaron el 2026-09-23: este es el
+# UNICO camino de WhatsApp.
+WA_TOKEN = os.getenv("WA_TOKEN", "").strip()
+WA_PHONE_ID = os.getenv("WA_PHONE_ID", "").strip()
+WA_WABA_ID = os.getenv("WA_WABA_ID", "").strip()
+WA_VERIFY_TOKEN = os.getenv("WA_VERIFY_TOKEN", "cj_medical_2026").strip()
+WA_APP_SECRET = os.getenv("WA_APP_SECRET", "").strip()
+WA_API = os.getenv("WA_API", "https://graph.facebook.com/v26.0").rstrip("/")
+
+wa_logger = logging.getLogger("whatsapp-cloud")
+
+# Meta reintenta el webhook si tarda: se recuerdan los ids ya contestados
+# para no responder dos veces el mismo mensaje.
+_WA_VISTOS = set()
+
+
+def _wa_firma_valida(crudo: bytes, cabecera: str, secreto: str) -> bool:
+    """Meta firma cada webhook con el App Secret (HMAC SHA256)."""
+    if not cabecera.startswith("sha256="):
+        return False
+    esperado = hmac.new(secreto.encode(), crudo, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(esperado, cabecera.split("=", 1)[1])
+
+
+def _wa_telefono(numero: str) -> str:
+    """Deja el numero como lo tiene la agenda: 573015001772 -> 3015001772."""
+    n = re.sub(r"\D", "", str(numero or ""))
+    if len(n) == 12 and n.startswith("57"):
+        return n[2:]
+    return n
+
+
+def _wa_texto(m: dict) -> str:
+    """El texto del mensaje, sea escrito, boton o respuesta de lista."""
+    tipo = m.get("type")
+    if tipo == "text":
+        return (m.get("text") or {}).get("body", "")
+    if tipo == "button":
+        return (m.get("button") or {}).get("text", "")
+    if tipo == "interactive":
+        i = m.get("interactive") or {}
+        return ((i.get("button_reply") or {}).get("title")
+                or (i.get("list_reply") or {}).get("title") or "")
+    return ""
+
+
+def _wa_cliente(wa_id: str, nombre: str) -> dict:
+    """La ficha del cliente en el CRM para este numero de WhatsApp.
+
+    Se reutiliza la que ya exista (por el numero internacional o por el
+    celular local) para que WhatsApp y Telegram no creen dos tarjetas del
+    mismo cliente.
+    """
+    local = _wa_telefono(wa_id)
     try:
-        # Obtener o crear cliente
-        client = get_or_create_client(phone, name=phone)
-        
-        # Guardar mensaje del cliente
-        save_message(client["id"], "client", body, channel="whatsapp")
-        
-        # Actualizar estado
-        if client["status"] in ("nuevo",):
-            update_client_status(client["id"], "en_conversacion", "Pepe Bot")
-        
-        # Detectar PQRS
-        pqrs_kw = ["queja", "reclamo", "me quejo", "pqrs", "inconforme", "cobro indebido",
-                "mala atencion", "mal servicio"]  # «problema» y «devolucion» salieron:
-    # eran demasiado comunes y mandaban al cliente a PQRS sin retorno
-        if any(p in body.lower() for p in pqrs_kw):
-            update_client_status(client["id"], "pqrs", "Pepe Bot")
-        
-        # Obtener historial y respuesta de IA
-        from crm.database import get_conversation
-        history = get_conversation(client["id"])
-        messages_for_ai = []
-        for msg in history[-20:]:
-            role = "user" if msg["role"] == "client" else "assistant"
-            messages_for_ai.append({"role": role, "content": msg["content"]})
-        
-        # Llamar a la IA - SINCrono (no espera internet del server)
-        reply = None
-        # Importar solo el SYSTEM_PROMPT para respuesta manual
-        try:
-            from main import ask_pepe, SYSTEM_PROMPT
-            reply = await ask_pepe(body, messages_for_ai,
-                                   telefono=str(client.get("phone") or ""),
-                                   client_id=client["id"])
-        except Exception as e:
-            logger.error(f"Error IA: {e}")
-            reply = None
-        
-        if not reply:
-            # Respuesta manual de bienvenida cuando la IA no está disponible
-            reply = """Hola, gracias por escribir a CJ Medical. 👋
-
-Somos un departamento médico especializado en el cuidado y recuperación de tus cejas.
-
-¿Desde qué ciudad nos contactas: Bogotá o Medellín?"""
-            logger.info("Usando respuesta manual (IA no disponible)")
-        
-        # Guardar respuesta del bot
-        save_message(client["id"], "bot", reply, channel="whatsapp")
-        
-        # Responder via TwiML - Twilio entrega el mensaje automáticamente
-        msg_resp = resp.message(body=reply)
-        logger.info(f"✅ Respuesta enviada por TwiML a {phone}")
-        
+        conn = get_connection()
+        fila = conn.execute(
+            "SELECT * FROM clients WHERE whatsapp_id = ? "
+            "OR (COALESCE(phone, '') <> '' AND phone = ?) "
+            "ORDER BY id LIMIT 1", (wa_id, local)).fetchone()
+        conn.close()
+        if fila:
+            c = dict(fila)
+            update_client_data(c["id"], whatsapp_id=wa_id, channel="whatsapp")
+            c["channel"] = "whatsapp"
+            return c
     except Exception as e:
-        logger.error(f"Error procesando mensaje Twilio: {e}")
-        resp.message(body="Gracias por contactar a CJ Medical. En breve un asesor te atenderá.")
-    
-    return HTMLResponse(content=str(resp), media_type="application/xml")
-
-
-# ─── EvolutionAPI Webhook ───
-EVOLUTION_API_KEY = "pepe_cj_medical_2026"
-EVOLUTION_API_BASE = "http://host.docker.internal:8080"
-EVOLUTION_INSTANCE = "pepe"
-
-@app.post("/api/evolution/whatsapp")
-async def evolution_whatsapp_webhook(request: Request):
-    """Recibe mensajes entrantes de WhatsApp via EvolutionAPI y responde"""
-    import logging, httpx
-    logger = logging.getLogger("evolution-webhook")
-    
+        wa_logger.error(f"No pude buscar la ficha del cliente: {e}")
+    # no existe: se crea con el numero de WhatsApp como llave
     try:
-        body_data = await request.json()
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO clients (whatsapp_id, name, phone, status, channel) "
+                    "VALUES (?, ?, ?, 'nuevo', 'whatsapp')",
+                    (wa_id, nombre or local, local or None))
+        conn.commit()
+        cid = cur.lastrowid
+        conn.close()
+        wa_logger.info(f"Ficha nueva de WhatsApp: {nombre or local} ({wa_id})")
+        return {"id": cid, "whatsapp_id": wa_id, "name": nombre or local,
+                "phone": local, "status": "nuevo", "channel": "whatsapp"}
+    except Exception as e:
+        wa_logger.error(f"No pude crear la ficha: {e}")
+        return get_or_create_client(wa_id, name=nombre)
+
+
+async def _wa_enviar(wa_id: str, texto: str) -> bool:
+    """Manda el texto por WhatsApp.
+
+    El envío de verdad vive en `whatsapp_cloud.py`, porque también lo usa
+    `main.py` para sacar las respuestas de los asesores desde el CRM.
+    Así solo hay UN lugar donde se habla con la API de Meta.
+    """
+    from whatsapp_cloud import enviar_texto
+    r = await enviar_texto(wa_id, texto)
+    return bool(r.get("ok"))
+
+
+async def _wa_marcar_leido(msg_id: str) -> None:
+    """Visto azul mientras Pepe piensa."""
+    from whatsapp_cloud import marcar_leido
+    await marcar_leido(msg_id)
+
+
+async def _wa_responder(wa_id: str, msg: dict, perfil: str) -> None:
+    """El corazon: guarda el mensaje, se lo pasa a Pepe y contesta."""
+    if not wa_id:
+        return
+    msg_id = msg.get("id") or ""
+    texto = _wa_texto(msg).strip()
+    if not texto:
+        wa_logger.info(f"Mensaje sin texto ({msg.get('type')}): se ignora")
+        return
+    wa_logger.info(f"WhatsApp de {wa_id} ({perfil}): {texto[:70]}")
+    await _wa_marcar_leido(msg_id)
+
+    client = _wa_cliente(wa_id, perfil)
+    save_message(client["id"], "client", texto, channel="whatsapp")
+    if client.get("status") in ("nuevo",):
+        update_client_status(client["id"], "en_conversacion", "Pepe Bot")
+
+    pqrs_kw = ["queja", "reclamo", "me quejo", "pqrs", "inconforme",
+               "cobro indebido", "mala atencion", "mal servicio"]
+    if any(p in texto.lower() for p in pqrs_kw):
+        update_client_status(client["id"], "pqrs", "Pepe Bot")
+
+    history = get_conversation(client["id"])
+    para_ia = [{"role": "user" if m["role"] == "client" else "assistant",
+                "content": m["content"]} for m in history[-20:]]
+
+    reply = None
+    try:
+        from main import ask_pepe
+        reply = await ask_pepe(texto, para_ia,
+                               telefono=_wa_telefono(wa_id) or wa_id,
+                               client_id=client["id"])
+    except Exception as e:
+        wa_logger.error(f"Error de la IA: {e}")
+
+    if not reply:
+        reply = ("Hola, gracias por escribir a CJ Medical. \U0001f44b\n\n"
+                 "Somos un departamento medico especializado en el cuidado y "
+                 "recuperacion de tus cejas.\n\n"
+                 "\u00bfDesde que ciudad nos contactas: Bogota o Medellin?")
+
+    save_message(client["id"], "bot", reply, channel="whatsapp")
+    await _wa_enviar(wa_id, reply)
+
+
+async def _wa_procesar(datos: dict) -> None:
+    """Recorre el lote que manda Meta y responde cada mensaje."""
+    for entrada in (datos.get("entry") or []):
+        for cambio in (entrada.get("changes") or []):
+            valor = cambio.get("value") or {}
+            perfil = (((valor.get("contacts") or [{}])[0]
+                       ).get("profile") or {}).get("name") or ""
+            for m in (valor.get("messages") or []):
+                mid = m.get("id") or ""
+                if mid and mid in _WA_VISTOS:
+                    continue          # Meta reintento: ya se contesto
+                if mid:
+                    _WA_VISTOS.add(mid)
+                    if len(_WA_VISTOS) > 500:
+                        _WA_VISTOS.clear()
+                try:
+                    await _wa_responder(m.get("from") or "", m, perfil)
+                except Exception as e:
+                    wa_logger.error(f"Error procesando un mensaje: {e}")
+            for s in (valor.get("statuses") or []):
+                wa_logger.info(f"estado {s.get('status')} -> {s.get('recipient_id')}")
+
+
+@app.get("/api/whatsapp/cloud")
+async def whatsapp_cloud_verificar(request: Request):
+    """Meta llama aqui UNA vez, al guardar el webhook, para verificarlo."""
+    q = request.query_params
+    if (q.get("hub.mode") == "subscribe"
+            and q.get("hub.verify_token") == WA_VERIFY_TOKEN):
+        wa_logger.info("Webhook de WhatsApp verificado por Meta")
+        return PlainTextResponse(q.get("hub.challenge", ""))
+    wa_logger.warning("Verify token no coincide")
+    return PlainTextResponse("forbidden", status_code=403)
+
+
+@app.post("/api/whatsapp/cloud")
+async def whatsapp_cloud_webhook(request: Request):
+    """Los mensajes entrantes de WhatsApp."""
+    crudo = await request.body()
+    if WA_APP_SECRET:
+        if not _wa_firma_valida(crudo,
+                                request.headers.get("x-hub-signature-256", ""),
+                                WA_APP_SECRET):
+            wa_logger.warning("Firma invalida: se ignora el webhook")
+            return JSONResponse({"status": "forbidden"}, status_code=403)
+    try:
+        datos = json.loads(crudo or b"{}")
     except Exception:
-        return JSONResponse({"status": "error", "message": "invalid json"}, status_code=400)
-    
-    logger.info(f"📩 EvolutionAPI event: {body_data.get('event')}")
-    
-    # Solo procesar MESSAGES_UPSERT que NO sean de salida
-    if body_data.get("event") != "MESSAGES_UPSERT":
-        return JSONResponse({"status": "ok"})
-    
-    data = body_data.get("data", {})
-    key = data.get("key", {})
-    
-    # Ignorar mensajes enviados por nosotros mismos
-    if key.get("fromMe", True):
-        return JSONResponse({"status": "ok", "note": "skip own message"})
-    
-    # Extraer número de teléfono del remoteJid (formato: 573001234567@s.whatsapp.net)
-    remote_jid = key.get("remoteJid", "")
-    phone = remote_jid.split("@")[0].strip()
-    if not phone:
-        logger.warning("⚠️ No se pudo extraer teléfono del remoteJid")
-        return JSONResponse({"status": "ok", "note": "no phone"})
-    
-    # Extraer texto del mensaje
-    message = data.get("message", {})
-    msg_text = (message.get("conversation", "") or 
-                message.get("extendedTextMessage", {}).get("text", "") or
-                "").strip()
-    
-    if not msg_text:
-        return JSONResponse({"status": "ok", "note": "empty message"})
-    
-    push_name = data.get("pushName", phone)
-    logger.info(f"📨 Evolution WhatsApp de {phone} ({push_name}): {msg_text[:60]}")
-    
-    try:
-        # Obtener o crear cliente
-        client = get_or_create_client(phone, name=push_name)
-        
-        # Guardar mensaje del cliente
-        save_message(client["id"], "client", msg_text, channel="whatsapp")
-        
-        # Actualizar estado
-        if client["status"] in ("nuevo",):
-            update_client_status(client["id"], "en_conversacion", "Pepe Bot")
-        
-        # PQRS
-        pqrs_kw = ["queja", "reclamo", "me quejo", "pqrs", "inconforme", "cobro indebido",
-                "mala atencion", "mal servicio"]  # «problema» y «devolucion» salieron:
-    # eran demasiado comunes y mandaban al cliente a PQRS sin retorno
-        if any(p in msg_text.lower() for p in pqrs_kw):
-            update_client_status(client["id"], "pqrs", "Pepe Bot")
-        
-        # Obtener historial
-        from crm.database import get_conversation
-        history = get_conversation(client["id"])
-        messages_for_ai = []
-        for msg in history[-20:]:
-            role = "user" if msg["role"] == "client" else "assistant"
-            messages_for_ai.append({"role": role, "content": msg["content"]})
-        
-        # Llamar a la IA
-        reply = None
-        try:
-            from main import ask_pepe, SYSTEM_PROMPT
-            reply = await ask_pepe(msg_text, messages_for_ai,
-                                   telefono=phone, client_id=client["id"])
-        except Exception as e:
-            logger.error(f"Error IA: {e}")
-            reply = None
-        
-        if not reply:
-            reply = """Hola, gracias por escribir a CJ Medical. 👋
-
-Somos un departamento médico especializado en el cuidado y recuperación de tus cejas.
-
-¿Desde qué ciudad nos contactas: Bogotá o Medellín?"""
-        
-        # Guardar respuesta del bot
-        save_message(client["id"], "bot", reply, channel="whatsapp")
-        
-        # Enviar respuesta por EvolutionAPI
-        async with httpx.AsyncClient(timeout=15) as hclient:
-            evo_resp = await hclient.post(
-                f"{EVOLUTION_API_BASE}/message/sendText/{EVOLUTION_INSTANCE}",
-                json={
-                    "number": phone,
-                    "text": reply,
-                    "delay": 1000,
-                },
-                headers={
-                    "apikey": EVOLUTION_API_KEY,
-                    "Content-Type": "application/json"
-                }
-            )
-            logger.info(f"✅ Respuesta enviada por EvolutionAPI a {phone} (status: {evo_resp.status_code})")
-        
-    except Exception as e:
-        logger.error(f"Error procesando mensaje EvolutionAPI: {e}")
-    
+        return JSONResponse({"status": "error"}, status_code=400)
+    # Meta reintenta si se tarda: se contesta ya y Pepe piensa en el fondo
+    asyncio.create_task(_wa_procesar(datos))
     return JSONResponse({"status": "ok"})
 
 
-@app.get("/qr")
-async def qr_page():
-    qr_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "qr-page.html")
-    if os.path.exists(qr_html_path):
-        with open(qr_html_path, "r", encoding="utf-8") as f:
-            return HTMLResponse(f.read())
-    return HTMLResponse("<h2>QR no disponible</h2><p>Espera a que el bot genere el QR.</p>")
-
-
-@app.get("/wa_qr.png")
-async def wa_qr_image():
-    qr_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "wa_qr.png")
-    if os.path.exists(qr_path):
-        return FileResponse(qr_path, media_type="image/png")
-    return JSONResponse({"error": "QR no generado aun"}, status_code=404)
-
-
-@app.get("/wa_qr_check")
-async def wa_qr_check():
-    ready_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "wa_ready.txt")
-    if os.path.exists(ready_path):
-        with open(ready_path) as f:
-            status = f.read().strip()
-        if status == "connected" or status.startswith("+"):
-            return {"status": "connected", "phone": status if status.startswith("+") else ""}
-        if status == "timeout":
-            return {"status": "timeout"}
-    return {"status": "waiting"}
+@app.get("/api/whatsapp/estado")
+async def whatsapp_estado(request: Request):
+    """Si WhatsApp quedo bien conectado. Pide sesion (expone el verify token)."""
+    if not get_advisor(request):
+        return JSONResponse({"error": "no autorizado"}, status_code=401)
+    faltan = [k for k, v in (("WA_TOKEN", WA_TOKEN), ("WA_PHONE_ID", WA_PHONE_ID))
+              if not v]
+    d = {"configurado": not faltan, "faltan": faltan,
+         "verify_token": WA_VERIFY_TOKEN, "firma_activa": bool(WA_APP_SECRET),
+         "webhook": "https://crmcjm.universojota.tech/api/whatsapp/cloud"}
+    if not faltan:
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.get(f"{WA_API}/{WA_PHONE_ID}",
+                                params={"fields": "display_phone_number,"
+                                                  "verified_name,quality_rating"},
+                                headers={"Authorization": f"Bearer {WA_TOKEN}"})
+            d["conexion"] = "ok" if r.status_code < 400 else "error"
+            d["meta"] = (r.json() if r.status_code < 400
+                         else {"error": r.text[:300]})
+        except Exception as e:
+            d["conexion"] = f"sin conexion: {e}"
+    return d
 
 
 @app.exception_handler(Exception)

@@ -23,7 +23,6 @@ from openai import OpenAI
 from anthropic import Anthropic
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from whatsapp_client import WhatsAppClient
 from herramientas import (HERRAMIENTAS, ejecutar as ejecutar_herramienta,
                           BLOQUE_PROMPT)
 
@@ -50,7 +49,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Cliente OpenRouter (fallback) ──
+# ── Cliente OpenRouter (el único proveedor que se usa) ──
 ai_client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
@@ -60,12 +59,29 @@ ai_client = OpenAI(
     },
 )
 
-# ── Cliente OpenRouter (DeepSeek V4 Flash - primario) ──
-# Anthropic deshabilitado por falta de créditos
+# Anthropic quedó deshabilitado (sin créditos) y ya nadie lo usa.
 anthropic_client = None
 
 # ── Selección de modelo ──
-PRIMARY_MODEL = "gpt-4o-mini"
+# PRIMARIO: DeepSeek V4 Pro por OpenRouter (1M de contexto). Elegido por el
+# jefe. Mide ~12 s por respuesta (es de razonamiento), más lento que
+# gpt-4o-mini, pero sus respuestas salen limpias y bien redactadas.
+#
+# Medido con el flujo real (prompt real + 12 herramientas, 6 casos, 2 corridas)
+# para no repetir la prueba — ./venv/bin/python comparar_modelos.py:
+#   deepseek-v4-pro     6/6 y 5/6  12.0 s   <- el elegido
+#   mistral-medium-3.1  6/6 y 6/6   2.1 s   <- rápido, pero metió una palabra
+#                                              en cirílico («реалиzan»)
+#   claude-haiku-4.5    6/6 y 4/6   3.2 s
+#   gpt-4o-mini         5/6 y 6/6   1.7 s   <- respaldo
+PRIMARY_MODEL = "deepseek/deepseek-v4-pro"
+# DeepSeek V4 Pro es de RAZONAMIENTO: "piensa" antes de contestar y esos
+# tokens salen del mismo presupuesto que la respuesta. Medido con el
+# prompt real: apagarlo da la MISMA calidad y baja de 4.9 s a 2.0 s, y
+# evita que la respuesta vuelva vacia. En None se deja de mandar.
+REASONING = {"enabled": False}
+# RESPALDO: si DeepSeek falla o está saturado, Pepe sigue contestando con
+# gpt-4o-mini en vez de quedarse mudo.
 FALLBACK_MODEL = "openai/gpt-4o-mini"
 
 # ── Fecha actual en español ──
@@ -87,12 +103,17 @@ def bloque_fechas() -> str:
     for nombre in DIAS_ES:
         for i in range(0, 7):
             if nom(prox[i]) == nombre:
-                etiqueta = "hoy" if i == 0 else f"este {nombre}"
+                # «el que viene» = el más cercano. En Colombia «el próximo
+                # sábado» es ESTE, no el de la otra semana.
+                etiqueta = ("hoy" if i == 0
+                            else f"el {nombre} que viene (el más cercano)")
                 lineas.append(f"- {etiqueta} = {fmt(prox[i])} ({nombre})")
                 break
         for i in range(7, 14):
             if nom(prox[i]) == nombre:
-                lineas.append(f"- próximo {nombre} = {fmt(prox[i])} ({nombre})")
+                lineas.append(
+                    f"- el {nombre} siguiente (el de la otra semana) = "
+                    f"{fmt(prox[i])} ({nombre})")
                 break
     return "\n".join(lineas)
 
@@ -124,24 +145,30 @@ NO te presentes como "Pepe" ni como "recepcionista virtual" a menos que el clien
 CJ Medical es un departamento médico especializado en la salud, cuidado y recuperación de tus cejas.
 
 Tiene dos sedes:
-- Bogotá: Sede Chico Norte — Cra 11A #96-51 Edificio Oficity Local 102
-- Medellín: Parque Comercial El Tesoro, Sótano 4 Plaza Norte, Cra 25A #1a sur - 45, Local 6100, Medellín
+- Bogotá: Sede Chico Norte — Cra 11A #96-51, Edificio Oficity, Local 102, Chicó Norte, Bogotá
+- Medellín: Parque Comercial El Tesoro — Cra 25A #1a sur-45, LC 6100, Sótano 4 por la plaza de cines, Torre Norte, Medellín
 
 __FECHAS_DE_HOY__
 
 # REGLA CRÍTICA: USO DE FECHAS
 
 NO adivines fechas. Usa los datos de FECHAS_AYUDA.
-- Si el cliente dice "viernes" busca en la lista cuándo cae viernes
-- Si el cliente dice "mañana" es la fecha que dice la lista
-- "próximo [día]" = el [día] de la semana siguiente
-- Siempre usa las fechas exactas de la lista, no inventes
+- "hoy", "mañana" y "pasado mañana" son los de la lista.
+- Si el cliente nombra un día («el sábado», «este sábado», «el próximo
+  sábado», «el sábado que viene») usa SIEMPRE EL MÁS CERCANO de la lista.
+  En Colombia «el próximo sábado» es el que viene, NO el de la otra semana.
+- Solo saltas al de la otra semana si lo dice claro: «el otro sábado»,
+  «el sábado siguiente», «el sábado de la otra semana», «en dos sábados».
+- Si el día que dijo ya pasó esta semana, usa el de la semana que viene.
+- SIEMPRE repite la fecha con número y mes («el sábado 26 de septiembre»)
+  para que el cliente te corrija si entendiste mal. Si te corrige, usa la
+  fecha que él diga, sin discutir, y sigue con esa.
 
 __COMO_AGENDA__
 
 # PERSONAL
 
-Medellín — C.C. El Tesoro:
+Medellín — Parque Comercial El Tesoro:
 - Valentina Baquero — Cosmetóloga
 - Dra. Julieth Arias — Médica
 - Dr. Jorge Cueter — Médico
@@ -149,6 +176,12 @@ Medellín — C.C. El Tesoro:
 Bogotá — Chico Norte:
 - Diana Carolina Ruiz — Cosmetóloga
 - Dr. Jorge Cueter — Médico
+
+Así se conoce al personal y así lo dice el cliente. En la agenda están con
+el nombre completo («Dr. Cueter» es JORGE RAMIRO CUETER GUZMAN, «Dra.
+Julieth Arias» es JULIE VIVIANA ARIAS HERNANDEZ). Las herramientas reconocen
+los dos. Si alguien aparece aquí, atiende: no inventes que «no está en esa
+ciudad».
 
 # HORARIOS
 
@@ -206,7 +239,7 @@ Limpieza, exfoliación, extracción e hidratación en un solo protocolo. Piel lu
 ## Casmara
 Tratamiento profesional con máscaras Casmara. Hidratación, nutrición y efecto tensor para una piel visiblemente más joven.
 - ❌ No disponible en Bogotá
-- ✅ Medellín (C.C. El Tesoro): Valentina Baquero (Cosmetóloga) | Precio: $360.000 COP
+- ✅ Medellín (Parque Comercial El Tesoro): Valentina Baquero (Cosmetóloga) | Precio: $360.000 COP
 - Si cliente de Bogotá lo pide: informa que solo en Medellín.
 
 ## Peeling Químico
@@ -221,7 +254,7 @@ Exfoliación química controlada para renovar la piel en profundidad. Mejora man
 - Precios por sesión: XS $60.000 | S $100.000 | M $150.000 | L $220.000 | XL $350.000
 - Paquetes 8 sesiones: XS $360.000 | S $600.000 | M $840.000 | L $1.400.000 | XL $2.000.000
 - Mantenimiento: XS $45.000 | S $75.000 | M $110.000 | L $180.000 | XL $260.000
-- Depilación Nasal: $20.000 — solo Valentina Baquero en Medellín (C.C. El Tesoro)
+- Depilación Nasal: $20.000 — solo Valentina Baquero en Medellín (Parque Comercial El Tesoro)
 - Zonas: XS (bozo, entrecejo, patillas, línea alba) | S (axilas, bikini simple, dedos) | M (bikini completo, antebrazo, pantorrilla) | L (piernas completas, espalda, pecho, brazos) | XL (cuerpo completo)
 
 ## Remoción de Micropigmentación
@@ -259,7 +292,7 @@ Cuando el cliente mencione "terapia" o "terapia de cejas", siempre se refiere a 
 # REGLA CRÍTICA: MEMORIA DE CIUDAD Y SEDE
 
 Una vez que el cliente diga su ciudad (Bogotá o Medellín), esa ciudad NO cambia por el resto de la conversación.
-- Si el cliente dice "Medellín" → la sede es C.C. El Tesoro. PUNTO. No la cambies a Chico Norte.
+- Si el cliente dice "Medellín" → la sede es Parque Comercial El Tesoro. PUNTO. No la cambies a Chico Norte.
 - Si el cliente dice "Bogotá" → la sede es Chico Norte. PUNTO. No la cambies a El Tesoro.
 - Si el cliente corrige la ciudad, actualízala. Pero si no la corrige, mantén la que dijo originalmente.
 - En el resumen final, la ciudad y sede deben coincidir con lo que el cliente dijo, NO con lo que tú asumas.
@@ -269,7 +302,7 @@ Una vez que el cliente diga su ciudad (Bogotá o Medellín), esa ciudad NO cambi
 Pregunta: "¿Desde qué ciudad nos estás contactando: Bogotá o Medellín?"
 
 Si es Bogotá: "Perfecto. En Bogotá contamos con nuestra sede de Chico Norte."
-Si es Medellín: "Perfecto. En Medellín contamos con nuestra sede ubicada en el Centro Comercial El Tesoro."
+Si es Medellín: "Perfecto. En Medellín contamos con nuestra sede ubicada en el Parque Comercial El Tesoro."
 
 No preguntes sede si solo hay una en esa ciudad.
 
@@ -437,9 +470,9 @@ async def sedes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📍 *Nuestras Sedes*\n\n"
         "🏙️ *Bogotá — Chico Norte*\n"
-        "   Cra 11A #96-51 · Edificio Oficity · Local 102\n\n"
-        "🏙️ *Medellín — C.C. El Tesoro*\n"
-        "   Parque Comercial El Tesoro, Sótano 4 Plaza Norte · Cra 25A #1a sur - 45 · Local 6100\n\n"
+        "   Cra 11A #96-51, Edificio Oficity, Local 102, Chicó Norte, Bogotá\n\n"
+        "🏙️ *Medellín — Parque Comercial El Tesoro*\n"
+        "   Cra 25A #1a sur-45, LC 6100, Sótano 4 por la plaza de cines, Torre Norte, Medellín\n\n"
         "¿Desde qué ciudad nos escribes? 😊",
         parse_mode="Markdown",
     )
@@ -507,14 +540,22 @@ async def ask_pepe(user_message: str, history: list = None,
                                  "pqrs" if motivo == "pqrs" else "pendiente",
                                  "Pepe Bot", f"{motivo}: {resumen}")
 
-    contexto = {"telefono": telefono, "escalar": escalar}
+    contexto = {"telefono": telefono, "escalar": escalar,
+                "client_id": client_id}
 
     for _ in range(4):
         try:
+            # `reasoning` NO va como argumento normal: el SDK de OpenAI no lo
+            # conoce y lanza «unexpected keyword argument». Los parametros
+            # propios de OpenRouter se mandan por `extra_body`. Si se pasa
+            # directo, TODAS las llamadas al modelo principal fallan y el bot
+            # se va en silencio por el respaldo.
+            extra = ({"extra_body": {"reasoning": REASONING}}
+                     if REASONING else {})
             resp = ai_client.chat.completions.create(
                 model=PRIMARY_MODEL, messages=messages,
                 tools=HERRAMIENTAS, tool_choice="auto",
-                max_tokens=1200, temperature=0.7)
+                max_tokens=3000, temperature=0.7, **extra)
         except Exception as e:
             logger.error(f"Modelo principal falló: {e}, usando fallback")
             try:
@@ -531,10 +572,41 @@ async def ask_pepe(user_message: str, history: list = None,
 
         msg = resp.choices[0].message
         if not getattr(msg, "tool_calls", None):
+            final = clean_response(msg.content or "")
+            if not final.strip():
+                # El modelo devolvio la respuesta en blanco. Un cliente NUNCA
+                # puede recibir un mensaje vacio: se reintenta con el respaldo.
+                logger.warning("Respuesta VACIA del modelo principal: "
+                               "reintento con %s" % FALLBACK_MODEL)
+                try:
+                    resp2 = ai_client.chat.completions.create(
+                        model=FALLBACK_MODEL, messages=messages,
+                        tools=HERRAMIENTAS, tool_choice="auto",
+                        max_tokens=1500, temperature=0.7)
+                    m2 = resp2.choices[0].message
+                    if getattr(m2, "tool_calls", None):
+                        # el respaldo pidio una herramienta: se le corre y el
+                        # bucle sigue, para que cierre la idea el mismo
+                        messages.append(m2.model_dump(exclude_none=True))
+                        for tc in m2.tool_calls:
+                            resultado = await ejecutar_herramienta(
+                                tc.function.name, tc.function.arguments, contexto)
+                            messages.append({
+                                "role": "tool", "tool_call_id": tc.id,
+                                "content": json.dumps(resultado,
+                                                      ensure_ascii=False,
+                                                      default=str)})
+                        continue
+                    final = clean_response(m2.content or "")
+                except Exception as e:
+                    logger.error("El reintento tambien fallo: %s" % e)
+                if not final.strip():
+                    final = ("Perdón, se me enredó algo por acá. ¿Me repites lo "
+                             "último que me dijiste? Ya casi dejamos tu cita lista.")
             update_agent_status("recep", doing="Cliente atendido",
                                 task="Esperando próximo mensaje", status="idle",
                                 walk_x=None, walk_z=None)
-            return clean_response(msg.content or "")
+            return final
 
         messages.append(msg.model_dump(exclude_none=True))
         for tc in msg.tool_calls:
@@ -543,13 +615,25 @@ async def ask_pepe(user_message: str, history: list = None,
             resultado = await ejecutar_herramienta(
                 tc.function.name, tc.function.arguments, contexto)
             logger.info(f"🔧 {tc.function.name} → {str(resultado)[:160]}")
+            # La tarjeta del CRM se mueve a «Agendados» apenas la cita queda
+            # puesta: antes el cliente se quedaba en «Leads Nuevos» para siempre.
+            if (tc.function.name == "agendar_cita" and client_id
+                    and isinstance(resultado, dict) and resultado.get("ok")):
+                try:
+                    update_client_status(client_id, "agendado", "Pepe Bot",
+                                         "Cita agendada en la agenda")
+                    logger.info(f"📊 Cliente {client_id} → Agendado en el CRM")
+                except Exception as e:
+                    logger.warning(f"No pude mover el cliente a agendado: {e}")
             messages.append({"role": "tool", "tool_call_id": tc.id,
                              "content": json.dumps(resultado, ensure_ascii=False,
                                                    default=str)})
 
     update_agent_status("recep", doing="Cliente atendido", status="idle")
-    return ("Déjame confirmar un detalle y te escribo en un momento. Si prefieres, "
-            "escribe /asesor para hablar con una persona del equipo.")
+    # Sin salida tras 4 vueltas: es un fallo técnico NUESTRO, no una razón
+    # para mandarle el cliente a un asesor.
+    return ("Perdón, se me enredó algo por acá. ¿Me repites lo último que me "
+            "dijiste? Ya casi dejamos tu cita lista.")
 
 
 # ── Manejar mensajes de texto ──
@@ -734,18 +818,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── Tarea periódica: enviar respuestas de asesores pendientes ──
-WHATSAPP_CLIENT = None  # Se asigna en init si WhatsApp está disponible
 
 async def send_pending_replies(app: Application):
     """Revisa la tabla pending_replies y envía los mensajes al cliente por Telegram o WhatsApp."""
     import sqlite3
-    from crm.database import DB_PATH, get_connection
-    global WHATSAPP_CLIENT
+    # `get_connection` se fue con el `global WHATSAPP_CLIENT` que si
+    # habia que borrar al quitar Playwright. Sin este import la tarea
+    # reventaba cada 10 s («name 'get_connection' is not defined») y
+    # NINGUNA respuesta de asesor se enviaba.
+    from crm.database import get_connection
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT pr.id, pr.client_id, pr.content, pr.advisor_name, c.telegram_id, c.phone
+            SELECT pr.id, pr.client_id, pr.content, pr.advisor_name,
+                   c.telegram_id, c.phone, c.whatsapp_id, c.channel
             FROM pending_replies pr
             JOIN clients c ON c.id = pr.client_id
             WHERE pr.sent = 0
@@ -753,13 +840,28 @@ async def send_pending_replies(app: Application):
         """)
         pending = cursor.fetchall()
         for row in pending:
-            reply_id, client_id, content, advisor_name, tg_id, phone = row
+            (reply_id, client_id, content, advisor_name,
+             tg_id, phone, wa_id, canal) = row
             try:
                 msg = f"{advisor_name or 'Asesor'} de CJ Medical:\n\n{content}"
                 sent = False
 
-                # Intentar enviar por Telegram
-                if tg_id:
+                # WhatsApp PRIMERO si el cliente vino de ahí. Se manda por la
+                # Cloud API de Meta (whatsapp_cloud.py). Antes esto dependía
+                # del cliente viejo de Playwright/EvolutionAPI, que está
+                # apagado: la respuesta del asesor NUNCA salía y nadie se
+                # enteraba.
+                if canal == "whatsapp" or (wa_id and not tg_id):
+                    from whatsapp_cloud import enviar_texto
+                    r = await enviar_texto(wa_id or phone, msg)
+                    if r["ok"]:
+                        sent = True
+                        logger.info(f"Respuesta de asesor enviada por WhatsApp a {wa_id or phone}")
+                    else:
+                        logger.warning(f"WhatsApp no pudo con {wa_id or phone}: {r['detalle']}")
+
+                # Telegram
+                if not sent and tg_id:
                     try:
                         await app.bot.send_message(chat_id=int(tg_id), text=msg)
                         sent = True
@@ -767,78 +869,26 @@ async def send_pending_replies(app: Application):
                     except Exception as e:
                         logger.warning(f"Telegram fallo para {tg_id}: {e}")
 
-                # Si no tiene Telegram, intentar WhatsApp
-                if not sent and phone and WHATSAPP_CLIENT is not None and WHATSAPP_CLIENT.status == "connected":
-                    wa_phone = phone.strip()
-                    if wa_phone.startswith("0"):
-                        wa_phone = "57" + wa_phone[1:]
-                    elif not wa_phone.startswith("57"):
-                        wa_phone = "57" + wa_phone
-                    await WHATSAPP_CLIENT.send_message(wa_phone, msg)
-                    sent = True
-                    logger.info(f"Respuesta enviada por WhatsApp a {wa_phone}")
+                # Último intento: WhatsApp por el celular guardado
+                if not sent and phone and not tg_id:
+                    from whatsapp_cloud import enviar_texto
+                    r = await enviar_texto(phone, msg)
+                    if r["ok"]:
+                        sent = True
+                        logger.info(f"Respuesta de asesor enviada por WhatsApp a {phone}")
 
                 if sent:
                     conn.execute("UPDATE pending_replies SET sent = 1 WHERE id = ?", (reply_id,))
                     conn.commit()
+                else:
+                    logger.warning(f"No pude entregar la respuesta {reply_id} "
+                                   f"(cliente {client_id}, canal {canal})")
             except Exception as e:
                 logger.error(f"Error al enviar respuesta (id={reply_id}): {e}")
         conn.close()
     except Exception as e:
         logger.error(f"Error en pending_replies: {e}")
 
-
-# ── Manejar mensajes de WhatsApp ──
-async def handle_whatsapp_message(phone: str, text: str, timestamp: str):
-    """Procesa un mensaje entrante de WhatsApp - misma logica que Telegram."""
-    from crm.database import get_or_create_client, save_message, get_conversation
-    global WHATSAPP_CLIENT
-
-    if not text or not text.strip():
-        return
-
-    text = text.strip()
-    client = get_or_create_client(phone, name=phone)
-    if not client:
-        logger.error(f"No se pudo crear cliente para {phone}")
-        return
-
-    # Guardar mensaje del cliente
-    save_message(client["id"], "client", text, channel="whatsapp")
-
-    # Actualizar estado si es nuevo
-    if client["status"] in ("nuevo",):
-        from crm.database import update_client_status
-        update_client_status(client["id"], "en_conversacion", "Pepe Bot")
-
-    # Detectar PQRS
-    pqrs_kw = ["queja", "reclamo", "me quejo", "pqrs", "inconforme", "cobro indebido",
-                "mala atencion", "mal servicio"]  # «problema» y «devolucion» salieron:
-    # eran demasiado comunes y mandaban al cliente a PQRS sin retorno
-    if any(p in text.lower() for p in pqrs_kw):
-        from crm.database import update_client_status
-        update_client_status(client["id"], "pqrs", "Pepe Bot")
-        logger.info(f"Cliente {phone} → PQRS (queja/reclamo)")
-
-    # Obtener historial de conversacion
-    history = get_conversation(client["id"])
-    messages = []
-    for msg in history[-20:]:
-        role = "user" if msg["role"] == "client" else "assistant"
-        messages.append({"role": role, "content": msg["content"]})
-
-    # Obtener respuesta de la IA
-    # Preparar historial para ask_pepe
-    reply = await ask_pepe(text, messages, telefono=phone,
-                           client_id=client["id"])
-
-    # Guardar respuesta del bot
-    save_message(client["id"], "bot", reply, channel="whatsapp")
-
-    # Enviar respuesta por WhatsApp
-    if WHATSAPP_CLIENT and WHATSAPP_CLIENT.status == "connected":
-        await WHATSAPP_CLIENT.send_message(phone, reply)
-        logger.info(f"Mensaje enviado a {phone}: {reply[:60]}...")
 
 # ── Manejar errores ──
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -878,12 +928,8 @@ def main():
             await asyncio.sleep(1)
         logger.info("✅ Sesiones limpiadas")
 
-        # ── Iniciar WhatsApp ──
-        # TEMPORAL: Deshabilitado para que Telegram funcione sin bloqueos
-        # TODO: Implementar WhatsApp con EvolutionAPI en lugar de Playwright
-        global WHATSAPP_CLIENT
-        WHATSAPP_CLIENT = None
-        logger.info("📱 WhatsApp deshabilitado temporalmente - usando solo Telegram")
+        # WhatsApp NO se conecta desde el bot: entra por el webhook del CRM
+        # (/api/whatsapp/cloud, Cloud API de Meta). Aqui solo queda Telegram.
 
         # ── Programar tarea periódica para enviar respuestas de asesores ──
         if app.job_queue:
